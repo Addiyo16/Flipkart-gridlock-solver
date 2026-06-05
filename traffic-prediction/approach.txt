@@ -1,0 +1,56 @@
+========================================================================
+FLIPKART GRIDLOCK HACKATHON - TRAFFIC DEMAND PREDICTION APPROACH
+========================================================================
+
+Team / Participant: Adarsh Ashok
+Local Validation R2 Score (Day 49 OOF): 93.16%
+
+------------------------------------------------------------------------
+1. EXECUTIVE SUMMARY & MODEL APPROACH
+------------------------------------------------------------------------
+The core challenge in this dataset is covariate shift and scale discrepancy. The training data on Day 49 only contains early morning records (00:00 to 02:00), whereas the test set contains Day 49 daytime records (02:15 to 13:45). Direct prediction models fail because they cannot extrapolate absolute demand.
+
+To solve this, we formulated a Log-Ratio Ensemble Model:
+* Instead of predicting raw demand, the model predicts the relative multiplier (log-ratio) of demand on Day 49 compared to the spatial-temporal baseline of Day 48.
+* Target Formulation:
+  y_diff = log(demand + 0.01) - log(geo_time_te + 0.01)
+  where 'geo_time_te' is the historical demand baseline computed strictly on Day 48 data.
+* Ensemble: We trained a blended ensemble of LightGBM, XGBoost, and CatBoost.
+* Generalization: Since the day-level scale multiplier is relatively flat, the tree models learn a constant shift for Day 49 and generalize it seamlessly to daytime hours.
+
+------------------------------------------------------------------------
+2. FEATURE ENGINEERING DETAILS
+------------------------------------------------------------------------
+* Base32 Geohash Decoding: Decoded string geohashes into raw Latitude and Longitude coordinate floats, allowing models to learn spatial proximity features.
+* Hierarchical Slicing: Created geohash prefixes (geohash_3, geohash_4, geohash_5) to capture spatial hierarchies.
+* Time Dynamics: Extracted 'minutes', 'hour', and cyclic time variables using time_sin and time_cos (np.sin/cos of time of day in minutes / 1440.0) to model peak traffic periods.
+* Strict Day 48 Baseline Target Encoding (TE):
+  - Created target encodings for 'geohash', 'timestamp', and 'geo_time' (geohash + timestamp combination).
+  - Out-of-fold statistics and test mappings are calculated EXCLUSIVELY on Day 48 data. This guarantees zero target leakage (no lookahead bias).
+
+------------------------------------------------------------------------
+3. TOOLS & STACK USED
+------------------------------------------------------------------------
+* Language: Python 3.10
+* Machine Learning Frameworks: LightGBM, XGBoost, CatBoost
+* Libraries: Pandas, NumPy, Scikit-learn (KFold, LabelEncoder, r2_score)
+
+------------------------------------------------------------------------
+4. VALIDATION SCHEME
+------------------------------------------------------------------------
+* 5-Fold Cross Validation was performed on the log-ratio target.
+* Validation metrics were evaluated strictly on the Day 49 morning records, aligning the validation set distribution with the test set's Day 49 timeframe.
+* Validation R2 Metrics:
+  - LightGBM R2: 0.92801
+  - XGBoost R2:  0.93246
+  - CatBoost R2: 0.91907
+  - Weighted Ensemble Blend R2: 0.93163
+
+------------------------------------------------------------------------
+5. DYNAMIC PROTOTYPE DETAILS (FOR PHASE 2 PREPAREDNESS)
+------------------------------------------------------------------------
+As part of our complete solution, we have already built a full-stack real-time smart city traffic simulation prototype under the directory 'gridlock-solver/':
+* Computer Vision: YOLOv8 model runs inside a FastAPI backend, performing vehicle detection and classified emergency siren flash-color recognition.
+* Graph DSA Engine: Implements a custom Binary Min-Heap priority queue and A* Search routing algorithm in JavaScript, optimizing computational complexity to O((V+E) log V).
+* Signal Coordination: Max-pressure signal controller implementing amber transitions and dynamic, multi-emergency sequential clearance wave arbitration timings.
+========================================================================

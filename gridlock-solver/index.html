@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bengaluru Gridlock Solver 2.0 - Smart Traffic Management System</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Lucide Icons for clean visuals -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+    <header>
+        <div class="brand">
+            <div class="logo-icon">Gridlock</div>
+            <h1>Solver <span>Bengaluru Smart Traffic Network</span></h1>
+        </div>
+        <div class="header-actions">
+            <div class="live-badge" id="connection-status-badge" style="background: #4B5563; margin-right: 0.5rem;">CV Offline (Sim Mode)</div>
+            <div class="live-badge">Live Simulation</div>
+            <div class="time-container" style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);" id="clock-display">20:21:09</div>
+        </div>
+    </header>
+
+    <main class="app-container">
+        <!-- Column 1: Map/Graph Simulation (Left) -->
+        <section class="col-panel glass-panel" id="simulation-panel">
+            <div class="panel-header">
+                <h2 class="panel-title">
+                    <i data-lucide="map"></i> Interactive Road Network (Graph)
+                </h2>
+                <div style="font-size: 0.75rem; color: var(--text-muted);">
+                    Click junctions to open CCTV
+                </div>
+            </div>
+            
+            <div class="instructions-overlay">
+                <p>🟢 Normal Vehicles: Circle Particles</p>
+                <p>🚨 Emergency (Ambulance): <span style="color: #3B82F6;">Blue Bouncing Siren</span></p>
+                <p>📍 Click junctions to monitor CCTV feed</p>
+            </div>
+            
+            <div class="canvas-container">
+                <canvas id="simulation-canvas"></canvas>
+                
+                <div class="sim-overlay-controls">
+                    <button class="btn-icon" id="btn-zoom-in" title="Zoom In"><i data-lucide="zoom-in"></i></button>
+                    <button class="btn-icon" id="btn-zoom-out" title="Zoom Out"><i data-lucide="zoom-out"></i></button>
+                    <button class="btn-icon" id="btn-reset" title="Reset View"><i data-lucide="refresh-cw"></i></button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Column 2: CCTV Feed & Node Analysis (Middle) -->
+        <section class="col-panel glass-panel">
+            <div class="panel-header">
+                <h2 class="panel-title">
+                    <i data-lucide="camera"></i> Junction CCTV & CV Model
+                </h2>
+            </div>
+            
+            <div class="panel-body">
+                <!-- CCTV View -->
+                <div id="cctv-feed-container">
+                    <canvas id="cctv-canvas"></canvas>
+                    <div class="cctv-overlay">
+                        <div class="cctv-cam-id" id="cctv-junction-name">CAM: SILK_BOARD_01</div>
+                        <div class="cctv-rec-status">LIVE</div>
+                    </div>
+                </div>
+
+                <!-- Emergency Siren Trigger Badge -->
+                <div class="emergency-alert hidden" id="emergency-alert-banner">
+                    <span class="emergency-alert-icon">🚨</span>
+                    <div class="emergency-alert-text">
+                        <strong>EMERGENCY PREEMPTION ACTIVE:</strong>
+                        <div style="font-size: 0.7rem; font-weight: normal;" id="emergency-alert-desc">Ambulance detected. Dynamic green-wave path opened.</div>
+                    </div>
+                </div>
+
+                <!-- CV Model Real-Time Metrics -->
+                <div class="cctv-metrics">
+                    <div class="cctv-metric-card">
+                        <div class="cctv-metric-label">Vehicles Detected</div>
+                        <div class="cctv-metric-value highlight" id="cv-vehicle-count">24</div>
+                    </div>
+                    <div class="cctv-metric-card">
+                        <div class="cctv-metric-label">Queue Length (Max)</div>
+                        <div class="cctv-metric-value" id="cv-queue-length">42 m</div>
+                    </div>
+                    <div class="cctv-metric-card">
+                        <div class="cctv-metric-label">Avg. Speed</div>
+                        <div class="cctv-metric-value" id="cv-avg-speed">14 km/h</div>
+                    </div>
+                    <div class="cctv-metric-card">
+                        <div class="cctv-metric-label">Junction Density</div>
+                        <div class="cctv-metric-value" id="cv-density" style="color: var(--traffic-red);">84%</div>
+                    </div>
+                </div>
+
+                <!-- Emergency Dispatch Button -->
+                <button class="btn-emergency" id="btn-dispatch-emergency">
+                    <i data-lucide="shield-alert"></i> Dispatch Emergency Ambulance
+                </button>
+
+                <!-- Signal Coordination Visualizer -->
+                <div class="theory-item" style="border-left: 3px solid var(--accent-cyan);">
+                    <div class="theory-title" style="font-size: 0.8rem;">
+                        <i data-lucide="network"></i> Signal Coordination Status
+                    </div>
+                    <div class="theory-desc" style="font-size: 0.7rem;" id="coordination-status-text">
+                        Monitoring inflow/outflow balance with BTM Layout and Koramangala. Active pressure diff: +4.
+                    </div>
+                </div>
+                
+                <!-- Toggle Mode Explanations -->
+                <div class="theory-item" style="margin-top: auto;">
+                    <div class="theory-title" style="font-size: 0.8rem;">
+                        <i data-lucide="cpu"></i> Active Algorithm: <span id="active-algo-name" style="color: var(--text-primary); font-weight: bold;">OpenCV Max-Pressure</span>
+                    </div>
+                    <div class="theory-desc" style="font-size: 0.7rem;" id="active-algo-desc">
+                        Decentralized control maximizing vehicle throughput by clearing high-pressure lanes while communicating queues to adjacent junctions to prevent downstream gridlock.
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Column 3: Stats, Controls & Alternate Methods (Right) -->
+        <section class="col-panel glass-panel">
+            <div class="tabs-container">
+                <button class="tab-btn active" data-tab="control-panel">Dashboard</button>
+                <button class="tab-btn" data-tab="theory-panel">Alternative Methods</button>
+            </div>
+            
+            <!-- Tab 1: Controls and Performance Dashboard -->
+            <div class="tab-content active" id="tab-control-panel" style="padding: 0 1.25rem 1.25rem 1.25rem;">
+                <!-- Controller Mode Toggle -->
+                <div style="margin-bottom: 0.5rem;">
+                    <label class="slider-header" style="margin-bottom: 0.35rem;">Control System Policy</label>
+                    <div class="toggle-container">
+                        <button class="toggle-btn" id="btn-policy-fixed">Fixed Timer</button>
+                        <button class="toggle-btn active" id="btn-policy-dynamic">OpenCV + Max-Pressure</button>
+                    </div>
+                </div>
+
+                <!-- Simulation Settings -->
+                <div class="slider-group">
+                    <div class="slider-header">
+                        <span>Traffic Flow (Vehicles / min)</span>
+                        <span class="slider-val" id="val-spawn-rate">45</span>
+                    </div>
+                    <input type="range" id="slider-spawn-rate" min="10" max="90" value="45">
+                </div>
+
+                <div class="slider-group">
+                    <div class="slider-header">
+                        <span>Max Green Signal Duration</span>
+                        <span class="slider-val" id="val-max-green">45s</span>
+                    </div>
+                    <input type="range" id="slider-max-green" min="15" max="90" value="45">
+                </div>
+
+                <!-- DSA Graph Routing Performance -->
+                <div class="theory-item" style="border-left: 3px solid var(--accent-cyan); margin-top: 0.65rem; margin-bottom: 0.65rem; padding: 0.4rem 0.6rem; background: rgba(6, 182, 212, 0.03);">
+                    <div class="theory-title" style="font-size: 0.75rem; display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 0.2rem;">
+                        <span><i data-lucide="git-branch" style="width:12px; height:12px; vertical-align:middle; margin-right:3px;"></i> Graph Routing Engine</span>
+                        <span id="active-routing-algo" style="color: var(--accent-cyan);">A* Search + Min-Heap</span>
+                    </div>
+                    <div class="theory-desc" style="font-size: 0.65rem; display: flex; justify-content: space-between; color: var(--text-muted);">
+                        <span>Avg Nodes Expanded (A*): <strong id="astar-nodes-expanded" style="color: var(--text-primary); font-family: monospace;">0.0</strong> / 6</span>
+                        <span>Dijkstra Baseline: <strong style="color: var(--traffic-red); font-family: monospace;">6.0</strong> (100% search)</span>
+                    </div>
+                </div>
+
+                <!-- Performance Metrics -->
+                <div class="metric-grid" style="margin-top: 0.5rem;">
+                    <div class="metric-card cyan">
+                        <div class="metric-label">Avg Waiting Time</div>
+                        <div class="metric-value-container">
+                            <span class="metric-value" id="val-avg-wait">14.2</span>
+                            <span class="metric-unit">s</span>
+                        </div>
+                        <div class="metric-comparison" id="wait-comparison">
+                            <i data-lucide="trending-down"></i> <span id="wait-compare-val">42% reduction</span>
+                        </div>
+                    </div>
+
+                    <div class="metric-card green">
+                        <div class="metric-label">Clearing Throughput</div>
+                        <div class="metric-value-container">
+                            <span class="metric-value" id="val-throughput">128</span>
+                            <span class="metric-unit">v/m</span>
+                        </div>
+                        <div class="metric-comparison" id="throughput-comparison">
+                            <i data-lucide="trending-up"></i> <span id="throughput-compare-val">+18% vs Fixed</span>
+                        </div>
+                    </div>
+
+                    <div class="metric-card red">
+                        <div class="metric-label">Congested Edges</div>
+                        <div class="metric-value-container">
+                            <span class="metric-value" id="val-congested-edges">1 / 14</span>
+                        </div>
+                        <div class="metric-comparison" id="congested-comparison" style="color: var(--traffic-green);">
+                            Stable network
+                        </div>
+                    </div>
+
+                    <div class="metric-card blue">
+                        <div class="metric-label">CO₂ Emission Saved</div>
+                        <div class="metric-value-container">
+                            <span class="metric-value" id="val-co2-saved">184</span>
+                            <span class="metric-unit">kg</span>
+                        </div>
+                        <div class="metric-comparison" style="color: var(--emergency-blue);">
+                            Equivalent: 12 trees
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Wait Time Graph -->
+                <div class="chart-container" style="margin-top: 0.5rem;">
+                    <div class="slider-header" style="margin-bottom: 0.25rem;">
+                        <span>Real-time Wait Time Comparison (s)</span>
+                        <span style="font-size: 0.7rem; color: var(--text-muted);">
+                            <span style="color: var(--traffic-red);">■</span> Fixed 
+                            <span style="color: var(--accent-cyan); margin-left: 0.5rem;">■</span> Dynamic
+                        </span>
+                    </div>
+                    <canvas id="chart-canvas"></canvas>
+                </div>
+            </div>
+
+            <!-- Tab 2: Alternative Methods Hub -->
+            <div class="tab-content" id="tab-theory-panel" style="padding: 0 1.25rem 1.25rem 1.25rem;">
+                <div class="theory-item">
+                    <div class="theory-title">
+                        <i data-lucide="brain"></i> Multi-Agent Reinforcement Learning
+                    </div>
+                    <div class="theory-desc">
+                        Uses Q-learning (e.g., DQN) or policy-based (PPO) agents at each junction.
+                        <br><br>
+                        <strong>State space:</strong> Queue lengths, waiting times, and incoming vehicle distances.
+                        <strong>Action space:</strong> Selection of traffic light phases.
+                        <strong>Reward function:</strong> Negative sum of waiting times of all vehicles.
+                        <br><br>
+                        <strong>Pros:</strong> Excellent at adapting to highly complex, non-linear flow dynamics.
+                        <strong>Cons:</strong> High computation requirements, requires SUMO simulation for training, and lacks guaranteed convergence limits (stability).
+                    </div>
+                </div>
+
+                <div class="theory-item">
+                    <div class="theory-title">
+                        <i data-lucide="git-branch"></i> Spatio-Temporal Graph Networks
+                    </div>
+                    <div class="theory-desc">
+                        Utilizes models like STGCN (Spatio-Temporal Graph Convolutional Networks) to predict traffic speeds and flow volumes.
+                        <br><br>
+                        <strong>Spatial Convolutions:</strong> Learn correlations between adjacent roads based on the graph adjacency matrix.
+                        <strong>Temporal Convolutions:</strong> Capture time-series trends (rush hours, rain patterns).
+                        <br><br>
+                        Allows the system to *proactively* adjust timings or route vehicles via navigation apps before actual gridlock develops.
+                    </div>
+                </div>
+
+                <div class="theory-item">
+                    <div class="theory-title">
+                        <i data-lucide="merge"></i> Floating Car Data (FCD) Fusion
+                    </div>
+                    <div class="theory-desc">
+                        Fuses stationary CCTV camera feeds with real-time GPS coordinates of delivery fleets (e.g., Flipkart trucks/bikes) and ride-hailing services.
+                        <br><br>
+                        <strong>Mechanism:</strong> Kalman filtering or Bayesian filters fuse the density measured by cameras at nodes with velocity vectors measured by vehicles along edges.
+                        <br><br>
+                        Solves the problem of "blind spots" where CCTV coverage is not available.
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Project Logic Scripts -->
+    <script src="algorithms.js"></script>
+    <script src="simulation.js"></script>
+    <script src="cv_feed.js"></script>
+    <script src="dashboard.js"></script>
+    <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+    </script>
+</body>
+</html>

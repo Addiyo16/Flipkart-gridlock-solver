@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.env
+.venv/
+env/
+venv/
+ENV/
+
+# Large Model Weights (Optional but recommended to ignore if using standard weights)
+# yolov8n.pt
+
+# System files
+.DS_Store
+Thumbs.db
+
+# VS Code / IDE configs
+.vscode/
+.idea/
+.gemini/
+antigravity/
