@@ -97,10 +97,27 @@
                     </div>
                 </div>
 
-                <!-- Emergency Dispatch Button -->
-                <button class="btn-emergency" id="btn-dispatch-emergency">
-                    <i data-lucide="shield-alert"></i> Dispatch Emergency Ambulance
-                </button>
+                <div style="display: flex; gap: 0.5rem;">
+                    <!-- Emergency Dispatch Button -->
+                    <button class="btn-emergency" id="btn-dispatch-emergency" style="flex: 1;">
+                        <i data-lucide="shield-alert"></i> Dispatch Ambulance
+                    </button>
+                    <!-- Trigger Accident Button -->
+                    <button class="btn-emergency" id="btn-trigger-accident" style="flex: 1; background: rgba(245, 158, 11, 0.1); color: var(--traffic-amber); border-color: rgba(245, 158, 11, 0.3);" onmouseover="this.style.background='var(--traffic-amber)'; this.style.color='#FFFFFF'; this.style.boxShadow='0 0 15px rgba(245, 158, 11, 0.4)'" onmouseout="this.style.background='rgba(245, 158, 11, 0.1)'; this.style.color='var(--traffic-amber)'; this.style.boxShadow='none'">
+                        <i data-lucide="car"></i> Trigger Accident
+                    </button>
+                </div>
+
+                <!-- Live Incident Log -->
+                <div class="incident-panel" style="margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.35rem; background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 10px; padding: 0.6rem;">
+                    <div class="theory-title" style="font-size: 0.75rem; color: var(--traffic-red); font-weight: bold; margin-bottom: 0.2rem; display: flex; align-items: center; justify-content: space-between;">
+                        <span>🚨 Incident & Violation Monitor</span>
+                        <span class="live-badge" style="background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.2); color: var(--traffic-red); padding: 0.1rem 0.4rem; font-size: 0.6rem; height: 16px; margin: 0; text-transform: uppercase;">Active Monitoring</span>
+                    </div>
+                    <div id="incident-log-container" style="font-family: monospace; font-size: 0.65rem; color: var(--text-secondary); max-height: 120px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.25rem; text-align: left;">
+                        <div style="color: var(--text-muted);">[System Initialized] Monitoring traffic laws...</div>
+                    </div>
+                </div>
 
                 <!-- Signal Coordination Visualizer -->
                 <div class="theory-item" style="border-left: 3px solid var(--accent-cyan);">
@@ -137,8 +154,9 @@
                 <div style="margin-bottom: 0.5rem;">
                     <label class="slider-header" style="margin-bottom: 0.35rem;">Control System Policy</label>
                     <div class="toggle-container">
-                        <button class="toggle-btn" id="btn-policy-fixed">Fixed Timer</button>
-                        <button class="toggle-btn active" id="btn-policy-dynamic">OpenCV + Max-Pressure</button>
+                        <button class="toggle-btn" id="btn-policy-fixed">Fixed</button>
+                        <button class="toggle-btn" id="btn-policy-smart">Smart Timer</button>
+                        <button class="toggle-btn active" id="btn-policy-dynamic">Max-Pressure</button>
                     </div>
                 </div>
 

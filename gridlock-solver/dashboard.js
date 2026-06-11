@@ -45,39 +45,78 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 4. Policy Switches
     const btnFixed = document.getElementById('btn-policy-fixed');
+    const btnSmart = document.getElementById('btn-policy-smart');
     const btnDynamic = document.getElementById('btn-policy-dynamic');
     const activeAlgoName = document.getElementById('active-algo-name');
     const activeAlgoDesc = document.getElementById('active-algo-desc');
 
     btnFixed.addEventListener('click', () => {
         btnFixed.classList.add('active');
+        btnSmart.classList.remove('active');
         btnDynamic.classList.remove('active');
         window.setPolicy('fixed');
         activeAlgoName.innerText = 'Fixed-Timer System';
         activeAlgoDesc.innerText = 'Standard signal layout cycles green phases at constant durations (e.g. 20s North-South, 20s East-West) regardless of actual incoming vehicle density.';
     });
 
+    btnSmart.addEventListener('click', () => {
+        btnSmart.classList.add('active');
+        btnFixed.classList.remove('active');
+        btnDynamic.classList.remove('active');
+        window.setPolicy('smart');
+        activeAlgoName.innerText = 'Smart Adaptive Timer';
+        activeAlgoDesc.innerText = 'Calculates green time dynamically based on the queue length. More vehicles on a lane grant it more green clearance time: Green = Min_Time + k * Queue_Length, matching traffic load.';
+    });
+
     btnDynamic.addEventListener('click', () => {
         btnDynamic.classList.add('active');
         btnFixed.classList.remove('active');
+        btnSmart.classList.remove('active');
         window.setPolicy('dynamic');
         activeAlgoName.innerText = 'OpenCV Max-Pressure';
         activeAlgoDesc.innerText = 'Decentralized control maximizing vehicle throughput by clearing high-pressure lanes while communicating queues to adjacent junctions to prevent downstream gridlock.';
     });
 
-    // 5. Emergency Dispatch Button
+    // 5. Incident Log & Emergency Dispatch Buttons
+    window.addIncidentLog = (message, color = 'var(--text-secondary)') => {
+        const container = document.getElementById('incident-log-container');
+        if (container) {
+            const timeStr = new Date().toTimeString().split(' ')[0];
+            const logEntry = document.createElement('div');
+            logEntry.innerHTML = `<span style="color: var(--text-muted);">[${timeStr}]</span> <span style="color: ${color};">${message}</span>`;
+            container.appendChild(logEntry);
+            container.scrollTop = container.scrollHeight;
+            
+            while (container.childNodes.length > 25) {
+                container.removeChild(container.firstChild);
+            }
+        }
+    };
+
     const btnEmergency = document.getElementById('btn-dispatch-emergency');
-    btnEmergency.addEventListener('click', () => {
-        window.spawnAmbulance();
-        
-        // Visual button feedback
-        btnEmergency.style.background = 'var(--traffic-red)';
-        btnEmergency.style.color = '#FFFFFF';
-        setTimeout(() => {
-            btnEmergency.style.background = '';
-            btnEmergency.style.color = '';
-        }, 1000);
-    });
+    if (btnEmergency) {
+        btnEmergency.addEventListener('click', () => {
+            window.spawnAmbulance();
+            window.addIncidentLog("Manual Emergency Dispatch: Ambulance deployed into the network.", "var(--emergency-blue)");
+            
+            // Visual button feedback
+            btnEmergency.style.background = 'var(--traffic-red)';
+            btnEmergency.style.color = '#FFFFFF';
+            setTimeout(() => {
+                btnEmergency.style.background = '';
+                btnEmergency.style.color = '';
+            }, 1000);
+        });
+    }
+
+    const btnAccident = document.getElementById('btn-trigger-accident');
+    if (btnAccident) {
+        btnAccident.addEventListener('click', () => {
+            if (window.triggerAccident) {
+                window.triggerAccident();
+            }
+        });
+    }
 
     // 6. Canvas-based Real-time Graph (Self-contained, premium styles)
     const chartCanvas = document.getElementById('chart-canvas');
@@ -191,8 +230,9 @@ document.addEventListener('DOMContentLoaded', () => {
             
             throughputVal = Math.round(40 + Math.random() * 8);
         } else {
-            // Under dynamic timer, wait times optimize and drop
-            const baseWait = 8 + (activeVehicles.length * 0.15);
+            // Under dynamic or smart timer, wait times optimize and drop
+            const multiplier = activePolicy === 'smart' ? 0.20 : 0.15;
+            const baseWait = (activePolicy === 'smart' ? 9.5 : 8) + (activeVehicles.length * multiplier);
             finalWaitTimeVal = baseWait + Math.sin(stats.runTime * 0.05) * 0.8;
             
             // Push values
@@ -204,7 +244,9 @@ document.addEventListener('DOMContentLoaded', () => {
             historyFixed.push(lastFixed + (Math.random() - 0.45) * 0.2);
             historyFixed.shift();
             
-            throughputVal = Math.round(95 + Math.random() * 20);
+            throughputVal = activePolicy === 'smart' 
+                ? Math.round(80 + Math.random() * 15)
+                : Math.round(95 + Math.random() * 20);
         }
 
         // Apply to UI

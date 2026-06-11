@@ -6,6 +6,7 @@ import torch
 import asyncio
 import base64
 import numpy as np
+import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from ultralytics import YOLO

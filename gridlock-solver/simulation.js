@@ -106,6 +106,15 @@ class TrafficNode {
             if (this.phaseTimer >= fixedDuration) {
                 targetPhase = 1 - this.activePhase;
             }
+        } else if (policy === 'smart') {
+            // Smart Adaptive Timer: Calculates green time dynamically based on the queue length.
+            // Green Ticks = minGreenTime + queueCount * 3.5 seconds
+            const activeQueue = this.calculatePhaseQueueLength(this.activePhase);
+            const dynamicGreenTicks = Math.min(this.maxGreenTicks, this.minGreenTicks + (activeQueue * 3.5 * 60));
+            
+            if (this.phaseTimer >= dynamicGreenTicks) {
+                targetPhase = 1 - this.activePhase;
+            }
         } else {
             // OpenCV Max-Pressure Coordination Logic
             // Evaluate pressure balances at regular intervals to allow traffic packets to pass and honor minimum green times
@@ -147,6 +156,17 @@ class TrafficNode {
         });
         
         return Math.max(0, incomingQueue - outgoingQueue);
+    }
+
+    calculatePhaseQueueLength(phase) {
+        let queueCount = 0;
+        this.incomingEdges.forEach(edgeId => {
+            const edge = edges.find(e => e.id === edgeId);
+            if (edge && TrafficAlgorithms.getPhaseForEdge(this, edge, edges) === phase) {
+                queueCount += edge.getQueueLength();
+            }
+        });
+        return queueCount;
     }
 
     draw() {
@@ -292,6 +312,11 @@ class Vehicle {
         this.waitTicks = 0;
         this.isWaiting = false;
         
+        // Safety violations and incident indicators
+        this.isAccident = false;
+        this.hasRedLightViolation = false;
+        this.hasSpeedViolation = false;
+        
         // Destination Selection & A* routing pathing
         this.path = [];
         this.selectDestination(startEdge.startNode.id);
@@ -312,26 +337,38 @@ class Vehicle {
             vehicles
         );
 
+        const currentEdge = edges.find(e => e.id === this.currentEdgeId);
         if (computedPath) {
             this.path = computedPath;
-        } else {
-            // Fallback: simple random walk pathing
-            this.path = [startNodeId, edges.find(e => e.id === this.currentEdgeId).endNode.id];
+        } else if (currentEdge) {
+            // Fallback: simple random walk pathing with safety checks
+            this.path = [startNodeId, currentEdge.endNode.id];
             let currentNode = nodes.find(n => n.id === this.path[1]);
             for (let i = 0; i < 3; i++) {
-                if (currentNode.outgoingEdges.length > 0) {
+                if (currentNode && currentNode.outgoingEdges.length > 0) {
                     const randEdgeId = currentNode.outgoingEdges[Math.floor(Math.random() * currentNode.outgoingEdges.length)];
                     const e = edges.find(edge => edge.id === randEdgeId);
-                    this.path.push(e.endNode.id);
-                    currentNode = e.endNode;
+                    if (e) {
+                        this.path.push(e.endNode.id);
+                        currentNode = e.endNode;
+                    }
                 }
             }
+        } else {
+            this.path = [startNodeId];
         }
     }
 
     update() {
         const edge = edges.find(e => e.id === this.currentEdgeId);
         if (!edge) return;
+
+        if (this.isAccident) {
+            this.speed = 0;
+            this.isWaiting = true;
+            this.waitTicks++;
+            return;
+        }
 
         const startX = edge.startNode.x;
         const startY = edge.startNode.y;
@@ -377,6 +414,14 @@ class Vehicle {
                     } else {
                         // Red Light: Complete stop
                         targetSpeed = 0;
+
+                        // Law Violation Detection: crossing stop line on Red
+                        if (remainingDist < 12 && this.speed > 0.8 && !this.hasRedLightViolation) {
+                            this.hasRedLightViolation = true;
+                            if (window.addIncidentLog) {
+                                window.addIncidentLog(`RED LIGHT VIOLATION: ${this.type.toUpperCase()} #${this.id} crossed stop line at ${junction.name}. Fined.`, "var(--traffic-red)");
+                            }
+                        }
                     }
                 }
             }
@@ -402,6 +447,15 @@ class Vehicle {
         // Progress along road
         const progressIncrement = this.speed / distance;
         this.progress += progressIncrement;
+
+        // Speed limit violation check
+        if (this.type === 'bike' && this.speed > 2.7 && this.progress > 0.3 && this.progress < 0.7 && !this.hasSpeedViolation && Math.random() < 0.003) {
+            this.hasSpeedViolation = true;
+            if (window.addIncidentLog) {
+                const speedKmh = Math.round(this.speed * 28);
+                window.addIncidentLog(`SPEEDING: Bike #${this.id} clocked at ${speedKmh} km/h (Limit: 60 km/h) on ${edge.startNode.name} -> ${edge.endNode.name}.`, "var(--traffic-amber)");
+            }
+        }
 
         // Check if vehicle stopped
         if (this.speed < 0.1) {
@@ -443,6 +497,18 @@ class Vehicle {
             vehiclesClearedFixed++;
         } else {
             vehiclesClearedDynamic++;
+        }
+        
+        // Check if this is a rescue ambulance arriving to clear an accident scene
+        if (this.type === 'ambulance' && this.rescueTargetVehicleId !== undefined) {
+            const targetVehicle = vehicles.find(v => v.id === this.rescueTargetVehicleId);
+            if (targetVehicle) {
+                targetVehicle.isAccident = false;
+                targetVehicle.speed = targetVehicle.maxSpeed;
+                if (window.addIncidentLog) {
+                    window.addIncidentLog(`RESCUE SUCCESS: Ambulance cleared accident scene. Traffic flow restored.`, "var(--traffic-green)");
+                }
+            }
         }
         
         // Remove from list
@@ -517,6 +583,22 @@ class Vehicle {
             ctx.fillRect(-this.height/2, -this.width/2, this.height, this.width);
             ctx.fillStyle = 'rgba(0,0,0,0.5)';
             ctx.fillRect(this.height/4, -this.width/2 + 1, 2, this.width - 2);
+        }
+
+        if (this.isAccident) {
+            // Draw warning hazard flash
+            const flash = Math.floor(Date.now() / 250) % 2 === 0;
+            ctx.rotate(-angle); // un-rotate to keep text upright
+            ctx.beginPath();
+            ctx.arc(0, 0, 16, 0, Math.PI * 2);
+            ctx.fillStyle = flash ? 'rgba(239, 68, 68, 0.45)' : 'rgba(245, 158, 11, 0.15)';
+            ctx.fill();
+            
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = 'bold 10px var(--font-sans)';
+            ctx.textAlign = 'center';
+            ctx.fillText("⚠️", 0, 3);
+            ctx.rotate(angle); // restore
         }
 
         ctx.restore();
@@ -669,7 +751,10 @@ function updateSim() {
             type = types[Math.floor(Math.random() * types.length)];
         }
         
-        spawnVehicle(type);
+        // Safety cap: Prevent browser slowdown or crash under heavy congestion by limiting active vehicles
+        if (vehicles.length < 180) {
+            spawnVehicle(type);
+        }
         spawnTimer = 0;
     }
 
@@ -757,4 +842,38 @@ window.getStats = () => {
         vehiclesClearedDynamic,
         runTime
     };
+};
+
+window.triggerAccident = () => {
+    const eligible = vehicles.filter(v => !v.isAccident && !['ambulance', 'police', 'fire_engine'].includes(v.type) && v.progress > 0.15 && v.progress < 0.85);
+    
+    if (eligible.length === 0) {
+        if (window.addIncidentLog) {
+            window.addIncidentLog("Cannot trigger accident: No moving vehicles on roads.", "var(--text-muted)");
+        }
+        return;
+    }
+    
+    const target = eligible[Math.floor(Math.random() * eligible.length)];
+    target.isAccident = true;
+    target.speed = 0;
+    
+    const edge = edges.find(e => e.id === target.currentEdgeId);
+    const roadName = edge ? `${edge.startNode.name} to ${edge.endNode.name}` : "road";
+    
+    if (window.addIncidentLog) {
+        window.addIncidentLog(`CRASH DETECTED: Accident on ${roadName} involving vehicle #${target.id}. Dispatching rescue...`, "var(--traffic-red)");
+    }
+    
+    // Spawn rescue ambulance
+    const amb = spawnVehicle('ambulance');
+    if (edge) {
+        const startNodeId = amb.path[0] || 5;
+        const destNodeId = edge.endNode.id;
+        const path = TrafficAlgorithms.findOptimalPathAStar(startNodeId, destNodeId, nodes, edges, vehicles);
+        if (path) {
+            amb.path = path;
+        }
+        amb.rescueTargetVehicleId = target.id;
+    }
 };
