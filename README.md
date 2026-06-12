@@ -1,4 +1,4 @@
-# Bengaluru Intelligent Traffic Management System (ITMS) — Gridlock Solver 2.0
+# Intelligent Traffic Management System (ITMS) — Gridlock Solver
 
 Intelligent Traffic Management System (ITMS) built for the **Flipkart Gridlock Hackathon**. It features a **Hybrid Edge-Cloud Architecture** that combines offline Machine Learning demand models with real-time Computer Vision (YOLOv8 + PyTorch), decentralized Max-Pressure signal controllers, dynamic A* routing, automated law enforcement, and emergency rescue preemption.
 

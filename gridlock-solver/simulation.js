@@ -1,4 +1,4 @@
-// Bengaluru Traffic Network Simulation Engine (Integrated with TrafficAlgorithms)
+// Traffic Network Simulation Engine (Integrated with TrafficAlgorithms)
 
 const canvas = document.getElementById('simulation-canvas');
 const ctx = canvas.getContext('2d');
@@ -7,7 +7,7 @@ const ctx = canvas.getContext('2d');
 let nodes = [];
 let edges = [];
 let vehicles = [];
-let selectedNodeId = 0; // Silk Board by default
+let selectedNodeId = 0; // Central Hub Junction by default
 let policy = 'dynamic'; // 'fixed' or 'dynamic'
 let spawnRate = 45; // vehicles spawned per minute
 let maxGreenTime = 45; // seconds
@@ -40,7 +40,7 @@ window.logAStarPerformance = (count) => {
     window.avgAStarNodesExpanded = (totalAStarNodesExpanded / aStarRouteCount).toFixed(1);
 };
 
-// Intersection Graph Structure representing South Bengaluru hotspots
+// Intersection Graph Structure representing urban hotspots
 class TrafficNode {
     constructor(id, name, x, y) {
         this.id = id;
@@ -605,15 +605,15 @@ class Vehicle {
     }
 }
 
-// Initialize Graph Structure (South Bengaluru Junctions)
+// Initialize Graph Structure (Urban Junctions)
 function initNetwork() {
     nodes = [
-        new TrafficNode(0, "Silk Board Junction", 400, 350),
-        new TrafficNode(1, "Koramangala 80ft Rd", 560, 230),
-        new TrafficNode(2, "HSR Layout Junction", 560, 470),
-        new TrafficNode(3, "BTM Layout Junction", 240, 350),
-        new TrafficNode(4, "Electronic City Flyover", 400, 500),
-        new TrafficNode(5, "Richmond Circle", 400, 200)
+        new TrafficNode(0, "Central Hub Junction", 400, 350),
+        new TrafficNode(1, "North-East Junction", 560, 230),
+        new TrafficNode(2, "South-East Junction", 560, 470),
+        new TrafficNode(3, "West Junction", 240, 350),
+        new TrafficNode(4, "South Bypass Junction", 400, 500),
+        new TrafficNode(5, "North Circle", 400, 200)
     ];
 
     let edgeIdCounter = 0;
@@ -631,17 +631,17 @@ function initNetwork() {
         nodeB.incomingEdges.push(e1.id);
     }
 
-    addRoad(nodes[5], nodes[0]); // Richmond Circle <-> Silk Board
-    addRoad(nodes[3], nodes[0]); // BTM Layout <-> Silk Board
-    addRoad(nodes[0], nodes[4]); // Silk Board <-> Electronic City
-    addRoad(nodes[1], nodes[0]); // Koramangala <-> Silk Board
-    addRoad(nodes[2], nodes[0]); // HSR Layout <-> Silk Board
+    addRoad(nodes[5], nodes[0]); // North Circle <-> Central Hub
+    addRoad(nodes[3], nodes[0]); // West Junction <-> Central Hub
+    addRoad(nodes[0], nodes[4]); // Central Hub <-> South Bypass
+    addRoad(nodes[1], nodes[0]); // North-East <-> Central Hub
+    addRoad(nodes[2], nodes[0]); // South-East <-> Central Hub
     
-    addRoad(nodes[5], nodes[1]); // Richmond Circle <-> Koramangala
-    addRoad(nodes[1], nodes[2]); // Koramangala <-> HSR Layout
-    addRoad(nodes[2], nodes[4]); // HSR Layout <-> Electronic City
-    addRoad(nodes[4], nodes[3]); // Electronic City <-> BTM Layout
-    addRoad(nodes[3], nodes[5]); // BTM Layout <-> Richmond Circle
+    addRoad(nodes[5], nodes[1]); // North Circle <-> North-East
+    addRoad(nodes[1], nodes[2]); // North-East <-> South-East
+    addRoad(nodes[2], nodes[4]); // South-East <-> South Bypass
+    addRoad(nodes[4], nodes[3]); // South Bypass <-> West Junction
+    addRoad(nodes[3], nodes[5]); // West Junction <-> North Circle
 }
 
 // Spawning Logic
