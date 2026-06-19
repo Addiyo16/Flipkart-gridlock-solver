@@ -5,8 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Intelligent Traffic Management System (ITMS) - Gridlock Solver</title>
     <link rel="stylesheet" href="style.css">
-    <!-- Lucide Icons for clean visuals -->
+    <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Leaflet.js CDNs -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
     <header>
@@ -15,51 +18,71 @@
             <h1>Solver <span>Smart Traffic Network</span></h1>
         </div>
         <div class="header-actions">
-            <div class="live-badge" id="connection-status-badge" style="background: #4B5563; margin-right: 0.5rem;">CV Offline (Sim Mode)</div>
-            <div class="live-badge">Live Simulation</div>
-            <div class="time-container" style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);" id="clock-display">20:21:09</div>
+            <div class="live-badge" id="connection-status-badge">CV Offline (Sim Mode)</div>
+            <div class="live-badge">Live System</div>
+            <div class="time-container" id="clock-display">00:00:00</div>
         </div>
     </header>
 
-    <main class="app-container">
-        <!-- Column 1: Map/Graph Simulation (Left) -->
-        <section class="col-panel glass-panel" id="simulation-panel">
+    <!-- Top KPI Bar -->
+    <div class="kpi-bar">
+        <div class="kpi-card">
+            <div class="kpi-icon cyan"><i data-lucide="gauge"></i></div>
+            <div class="kpi-info">
+                <span class="kpi-label">Average Speed</span>
+                <span class="kpi-value" id="kpi-avg-speed">26 mph</span>
+            </div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-icon green"><i data-lucide="activity"></i></div>
+            <div class="kpi-info">
+                <span class="kpi-label">Traffic Volume</span>
+                <span class="kpi-value" id="kpi-volume">12,450 v/h</span>
+            </div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-icon red"><i data-lucide="bell"></i></div>
+            <div class="kpi-info">
+                <span class="kpi-label">Incident Alerts</span>
+                <span class="kpi-value" id="kpi-alerts">0 Active</span>
+            </div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-icon amber"><i data-lucide="hourglass"></i></div>
+            <div class="kpi-info">
+                <span class="kpi-label">Travel Time Index</span>
+                <span class="kpi-value" id="kpi-index">1.8 Congested</span>
+            </div>
+        </div>
+    </div>
+
+    <main class="dashboard-grid">
+        <!-- Panel Left: Real Map Visualization (Leaflet.js) -->
+        <section class="grid-panel glass-panel" id="map-panel">
             <div class="panel-header">
                 <h2 class="panel-title">
-                    <i data-lucide="map"></i> Interactive Road Network (Graph)
+                    <i data-lucide="map-pin"></i> Live Geographic Traffic Map
                 </h2>
-                <div style="font-size: 0.75rem; color: var(--text-muted);">
-                    Click junctions to open CCTV
-                </div>
+                <span style="font-size: 0.75rem; color: var(--text-muted);">Real OSM Tiles</span>
             </div>
-            
-            <div class="instructions-overlay">
-                <p>🟢 Normal Vehicles: Circle Particles</p>
-                <p>🚨 Emergency (Ambulance): <span style="color: #3B82F6;">Blue Bouncing Siren</span></p>
-                <p>📍 Click junctions to monitor CCTV feed</p>
-            </div>
-            
-            <div class="canvas-container">
+            <div class="map-wrapper">
+                <div id="leaflet-map"></div>
                 <canvas id="simulation-canvas"></canvas>
-                
-                <div class="sim-overlay-controls">
-                    <button class="btn-icon" id="btn-zoom-in" title="Zoom In"><i data-lucide="zoom-in"></i></button>
-                    <button class="btn-icon" id="btn-zoom-out" title="Zoom Out"><i data-lucide="zoom-out"></i></button>
-                    <button class="btn-icon" id="btn-reset" title="Reset View"><i data-lucide="refresh-cw"></i></button>
+                <div class="instructions-overlay map-overlay">
+                    <p>🟢 Normal flow | 🚨 Emergency preemption active</p>
+                    <p>📍 Click markers for local CCTV feeds</p>
                 </div>
             </div>
         </section>
 
-        <!-- Column 2: CCTV Feed & Node Analysis (Middle) -->
-        <section class="col-panel glass-panel">
+        <!-- Panel Middle: Real-time Camera Feed & Operations -->
+        <section class="grid-panel glass-panel" id="camera-panel">
             <div class="panel-header">
                 <h2 class="panel-title">
-                    <i data-lucide="camera"></i> Junction CCTV & CV Model
+                    <i data-lucide="camera"></i> Junction Live CCTV & CV Analytics
                 </h2>
             </div>
-            
             <div class="panel-body">
-                <!-- CCTV View -->
                 <div id="cctv-feed-container">
                     <canvas id="cctv-canvas"></canvas>
                     <div class="cctv-overlay">
@@ -68,7 +91,6 @@
                     </div>
                 </div>
 
-                <!-- Emergency Siren Trigger Badge -->
                 <div class="emergency-alert hidden" id="emergency-alert-banner">
                     <span class="emergency-alert-icon">🚨</span>
                     <div class="emergency-alert-text">
@@ -77,78 +99,64 @@
                     </div>
                 </div>
 
-                <!-- CV Model Real-Time Metrics -->
                 <div class="cctv-metrics">
                     <div class="cctv-metric-card">
                         <div class="cctv-metric-label">Vehicles Detected</div>
-                        <div class="cctv-metric-value highlight" id="cv-vehicle-count">24</div>
+                        <div class="cctv-metric-value highlight" id="cv-vehicle-count">0</div>
                     </div>
                     <div class="cctv-metric-card">
                         <div class="cctv-metric-label">Queue Length (Max)</div>
-                        <div class="cctv-metric-value" id="cv-queue-length">42 m</div>
+                        <div class="cctv-metric-value" id="cv-queue-length">0 m</div>
                     </div>
                     <div class="cctv-metric-card">
                         <div class="cctv-metric-label">Avg. Speed</div>
-                        <div class="cctv-metric-value" id="cv-avg-speed">14 km/h</div>
+                        <div class="cctv-metric-value" id="cv-avg-speed">45 km/h</div>
                     </div>
                     <div class="cctv-metric-card">
                         <div class="cctv-metric-label">Junction Density</div>
-                        <div class="cctv-metric-value" id="cv-density" style="color: var(--traffic-red);">84%</div>
+                        <div class="cctv-metric-value" id="cv-density">0%</div>
                     </div>
                 </div>
 
                 <div style="display: flex; gap: 0.5rem;">
-                    <!-- Emergency Dispatch Button -->
                     <button class="btn-emergency" id="btn-dispatch-emergency" style="flex: 1;">
                         <i data-lucide="shield-alert"></i> Dispatch Ambulance
                     </button>
-                    <!-- Trigger Accident Button -->
                     <button class="btn-emergency" id="btn-trigger-accident" style="flex: 1; background: rgba(245, 158, 11, 0.1); color: var(--traffic-amber); border-color: rgba(245, 158, 11, 0.3);" onmouseover="this.style.background='var(--traffic-amber)'; this.style.color='#FFFFFF'; this.style.boxShadow='0 0 15px rgba(245, 158, 11, 0.4)'" onmouseout="this.style.background='rgba(245, 158, 11, 0.1)'; this.style.color='var(--traffic-amber)'; this.style.boxShadow='none'">
                         <i data-lucide="car"></i> Trigger Accident
                     </button>
                 </div>
 
-                <!-- Live Incident Log -->
-                <div class="incident-panel" style="margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.35rem; background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 10px; padding: 0.6rem;">
-                    <div class="theory-title" style="font-size: 0.75rem; color: var(--traffic-red); font-weight: bold; margin-bottom: 0.2rem; display: flex; align-items: center; justify-content: space-between;">
-                        <span>🚨 Incident & Violation Monitor</span>
-                        <span class="live-badge" style="background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.2); color: var(--traffic-red); padding: 0.1rem 0.4rem; font-size: 0.6rem; height: 16px; margin: 0; text-transform: uppercase;">Active Monitoring</span>
-                    </div>
-                    <div id="incident-log-container" style="font-family: monospace; font-size: 0.65rem; color: var(--text-secondary); max-height: 120px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.25rem; text-align: left;">
-                        <div style="color: var(--text-muted);">[System Initialized] Monitoring traffic laws...</div>
-                    </div>
-                </div>
-
                 <!-- Signal Coordination Visualizer -->
                 <div class="theory-item" style="border-left: 3px solid var(--accent-cyan);">
                     <div class="theory-title" style="font-size: 0.8rem;">
-                        <i data-lucide="network"></i> Signal Coordination Status
+                        <i data-lucide="network"></i> Signal Status
                     </div>
-                    <div class="theory-desc" style="font-size: 0.7rem;" id="coordination-status-text">
-                        Monitoring inflow/outflow balance with West Junction and North-East Junction. Active pressure diff: +4.
+                    <div class="theory-desc" style="font-size: 0.75rem;" id="coordination-status-text">
+                        Establishing signal synchronization...
                     </div>
                 </div>
-                
-                <!-- Toggle Mode Explanations -->
-                <div class="theory-item" style="margin-top: auto;">
-                    <div class="theory-title" style="font-size: 0.8rem;">
-                        <i data-lucide="cpu"></i> Active Algorithm: <span id="active-algo-name" style="color: var(--text-primary); font-weight: bold;">OpenCV Max-Pressure</span>
+
+                <!-- Live Incident Terminal Log -->
+                <div class="incident-panel">
+                    <div class="theory-title" style="font-size: 0.75rem; color: var(--traffic-red); font-weight: bold; margin-bottom: 0.2rem; display: flex; align-items: center; justify-content: space-between;">
+                        <span>🚨 Incident & Violation Monitor</span>
+                        <span class="live-badge" style="background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.2); color: var(--traffic-red); padding: 0.1rem 0.4rem; font-size: 0.6rem; height: 16px; margin: 0; text-transform: uppercase;">Active</span>
                     </div>
-                    <div class="theory-desc" style="font-size: 0.7rem;" id="active-algo-desc">
-                        Decentralized control maximizing vehicle throughput by clearing high-pressure lanes while communicating queues to adjacent junctions to prevent downstream gridlock.
+                    <div id="incident-log-container">
+                        <div style="color: var(--text-muted);">[System Initialized] Monitoring traffic laws...</div>
                     </div>
                 </div>
             </div>
         </section>
 
-        <!-- Column 3: Stats, Controls & Alternate Methods (Right) -->
-        <section class="col-panel glass-panel">
+        <!-- Panel Right: Analytics & Policy Controls -->
+        <section class="grid-panel glass-panel" id="controls-panel">
             <div class="tabs-container">
-                <button class="tab-btn active" data-tab="control-panel">Dashboard</button>
-                <button class="tab-btn" data-tab="theory-panel">Alternative Methods</button>
+                <button class="tab-btn active" data-tab="control-panel">Dashboard Controls</button>
+                <button class="tab-btn" data-tab="theory-panel">Alternative Systems</button>
             </div>
             
-            <!-- Tab 1: Controls and Performance Dashboard -->
             <div class="tab-content active" id="tab-control-panel" style="padding: 0 1.25rem 1.25rem 1.25rem;">
                 <!-- Controller Mode Toggle -->
                 <div style="margin-bottom: 0.5rem;">
@@ -163,7 +171,7 @@
                 <!-- Simulation Settings -->
                 <div class="slider-group">
                     <div class="slider-header">
-                        <span>Traffic Flow (Vehicles / min)</span>
+                        <span>Traffic Density (Vehicles / min)</span>
                         <span class="slider-val" id="val-spawn-rate">45</span>
                     </div>
                     <input type="range" id="slider-spawn-rate" min="10" max="90" value="45">
@@ -177,15 +185,15 @@
                     <input type="range" id="slider-max-green" min="15" max="90" value="45">
                 </div>
 
-                <!-- DSA Graph Routing Performance -->
-                <div class="theory-item" style="border-left: 3px solid var(--accent-cyan); margin-top: 0.65rem; margin-bottom: 0.65rem; padding: 0.4rem 0.6rem; background: rgba(6, 182, 212, 0.03);">
+                <!-- Graph Routing Stats -->
+                <div class="theory-item" style="border-left: 3px solid var(--accent-cyan); padding: 0.4rem 0.6rem; background: rgba(6, 182, 212, 0.03);">
                     <div class="theory-title" style="font-size: 0.75rem; display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 0.2rem;">
                         <span><i data-lucide="git-branch" style="width:12px; height:12px; vertical-align:middle; margin-right:3px;"></i> Graph Routing Engine</span>
                         <span id="active-routing-algo" style="color: var(--accent-cyan);">A* Search + Min-Heap</span>
                     </div>
                     <div class="theory-desc" style="font-size: 0.65rem; display: flex; justify-content: space-between; color: var(--text-muted);">
                         <span>Avg Nodes Expanded (A*): <strong id="astar-nodes-expanded" style="color: var(--text-primary); font-family: monospace;">0.0</strong> / 6</span>
-                        <span>Dijkstra Baseline: <strong style="color: var(--traffic-red); font-family: monospace;">6.0</strong> (100% search)</span>
+                        <span>Dijkstra Baseline: <strong style="color: var(--traffic-red); font-family: monospace;">6.0</strong> (100%)</span>
                     </div>
                 </div>
 
@@ -216,10 +224,10 @@
                     <div class="metric-card red">
                         <div class="metric-label">Congested Edges</div>
                         <div class="metric-value-container">
-                            <span class="metric-value" id="val-congested-edges">1 / 14</span>
+                            <span class="metric-value" id="val-congested-edges">0 / 14</span>
                         </div>
-                        <div class="metric-comparison" id="congested-comparison" style="color: var(--traffic-green);">
-                            Stable network
+                        <div class="metric-comparison" id="congested-comparison">
+                            Stable flow
                         </div>
                     </div>
 
@@ -235,10 +243,10 @@
                     </div>
                 </div>
 
-                <!-- Live Wait Time Graph -->
-                <div class="chart-container" style="margin-top: 0.5rem;">
+                <!-- Chart Container -->
+                <div class="chart-container" style="margin-top: 0.5rem; height: 160px;">
                     <div class="slider-header" style="margin-bottom: 0.25rem;">
-                        <span>Real-time Wait Time Comparison (s)</span>
+                        <span>Real-time Wait Time (seconds)</span>
                         <span style="font-size: 0.7rem; color: var(--text-muted);">
                             <span style="color: var(--traffic-red);">■</span> Fixed 
                             <span style="color: var(--accent-cyan); margin-left: 0.5rem;">■</span> Dynamic
@@ -248,7 +256,6 @@
                 </div>
             </div>
 
-            <!-- Tab 2: Alternative Methods Hub -->
             <div class="tab-content" id="tab-theory-panel" style="padding: 0 1.25rem 1.25rem 1.25rem;">
                 <div class="theory-item">
                     <div class="theory-title">
@@ -256,45 +263,80 @@
                     </div>
                     <div class="theory-desc">
                         Uses Q-learning (e.g., DQN) or policy-based (PPO) agents at each junction.
-                        <br><br>
-                        <strong>State space:</strong> Queue lengths, waiting times, and incoming vehicle distances.
-                        <strong>Action space:</strong> Selection of traffic light phases.
-                        <strong>Reward function:</strong> Negative sum of waiting times of all vehicles.
-                        <br><br>
-                        <strong>Pros:</strong> Excellent at adapting to highly complex, non-linear flow dynamics.
-                        <strong>Cons:</strong> High computation requirements, requires SUMO simulation for training, and lacks guaranteed convergence limits (stability).
+                        State space includes queue sizes and vehicle vectors.
                     </div>
                 </div>
-
                 <div class="theory-item">
                     <div class="theory-title">
                         <i data-lucide="git-branch"></i> Spatio-Temporal Graph Networks
                     </div>
                     <div class="theory-desc">
-                        Utilizes models like STGCN (Spatio-Temporal Graph Convolutional Networks) to predict traffic speeds and flow volumes.
-                        <br><br>
-                        <strong>Spatial Convolutions:</strong> Learn correlations between adjacent roads based on the graph adjacency matrix.
-                        <strong>Temporal Convolutions:</strong> Capture time-series trends (rush hours, rain patterns).
-                        <br><br>
-                        Allows the system to *proactively* adjust timings or route vehicles via navigation apps before actual gridlock develops.
-                    </div>
-                </div>
-
-                <div class="theory-item">
-                    <div class="theory-title">
-                        <i data-lucide="merge"></i> Floating Car Data (FCD) Fusion
-                    </div>
-                    <div class="theory-desc">
-                        Fuses stationary CCTV camera feeds with real-time GPS coordinates of delivery fleets (e.g., Flipkart trucks/bikes) and ride-hailing services.
-                        <br><br>
-                        <strong>Mechanism:</strong> Kalman filtering or Bayesian filters fuse the density measured by cameras at nodes with velocity vectors measured by vehicles along edges.
-                        <br><br>
-                        Solves the problem of "blind spots" where CCTV coverage is not available.
+                        Utilizes models like STGCN (Spatio-Temporal Graph Convolutional Networks) to predict traffic speeds and flow volumes proactively.
                     </div>
                 </div>
             </div>
         </section>
+
+        <!-- Bottom Panel: Unified Violations Database Interface -->
+        <section class="grid-panel glass-panel" id="database-panel" style="grid-column: span 3;">
+            <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <h2 class="panel-title">
+                    <i data-lucide="database"></i> Unified Traffic Violations Database & RAG Citation Log
+                </h2>
+                <div style="display: flex; gap: 0.75rem; align-items: center;">
+                    <input type="text" id="db-search-bar" placeholder="Search by Vehicle Plate Number..." class="search-input" />
+                    <select id="db-filter-type" class="filter-select">
+                        <option value="">All Violations</option>
+                        <option value="helmet_non_compliance">Helmet Non-Compliance</option>
+                        <option value="seatbelt_non_compliance">Seatbelt Non-Compliance</option>
+                        <option value="red_light_violation">Red Light Violation</option>
+                        <option value="speeding">Speeding</option>
+                        <option value="wrong_side_driving">Wrong-side Driving</option>
+                        <option value="illegal_parking">Illegal Parking</option>
+                    </select>
+                    <button class="btn-emergency" id="btn-clear-db" style="background: rgba(239, 68, 68, 0.1); color: var(--traffic-red); border-color: rgba(239, 68, 68, 0.3); padding: 0.3rem 1rem; font-size: 0.75rem; width: auto;">
+                        <i data-lucide="trash-2"></i> Clear Database
+                    </button>
+                </div>
+            </div>
+            <div class="db-table-container">
+                <table class="db-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Timestamp</th>
+                            <th>Vehicle Number</th>
+                            <th>Type</th>
+                            <th>Infraction Class</th>
+                            <th>Location</th>
+                            <th>Confidence</th>
+                            <th>AI Legal Citation (RAG)</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="db-violations-body">
+                        <!-- Loaded dynamically from SQLite REST Endpoint -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
     </main>
+
+    <!-- RAG Explanation Modal Overlay -->
+    <div id="rag-modal" class="modal hidden">
+        <div class="modal-content glass-panel">
+            <span class="close-btn" id="close-modal">&times;</span>
+            <h3 style="color: var(--accent-cyan); display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; font-family: var(--font-display);">
+                <i data-lucide="book-open"></i> AI Legal Citation & Safety Explanation (RAG)
+            </h3>
+            <div id="rag-modal-body" style="font-size: 0.85rem; line-height: 1.6; color: var(--text-primary); text-align: left; background: rgba(0,0,0,0.2); border-radius: 8px; padding: 1rem; border: 1px solid var(--border-color);">
+                <!-- Filled dynamically by JavaScript -->
+            </div>
+            <div style="margin-top: 1.5rem; display: flex; justify-content: flex-end;">
+                <button class="btn-emergency" id="btn-close-modal" style="width: auto; padding: 0.5rem 1.5rem; background: var(--accent-cyan); color: var(--bg-base); border: none;">Acknowledge Citation</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Project Logic Scripts -->
     <script src="algorithms.js"></script>
@@ -302,7 +344,6 @@
     <script src="cv_feed.js"></script>
     <script src="dashboard.js"></script>
     <script>
-        // Initialize Lucide icons
         lucide.createIcons();
     </script>
 </body>

@@ -1,4 +1,15 @@
-// Traffic Network Simulation Engine (Integrated with TrafficAlgorithms)
+// Traffic Network Simulation Engine (Leaflet Map & Canvas Overlay Integration)
+
+// Initialize Leaflet Map over Bengaluru
+const map = L.map('leaflet-map', {
+    zoomControl: false,
+    attributionControl: false
+}).setView([12.9180, 77.6250], 13);
+
+// CartoDB Dark Matter tile layer
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19
+}).addTo(map);
 
 const canvas = document.getElementById('simulation-canvas');
 const ctx = canvas.getContext('2d');
@@ -8,7 +19,7 @@ let nodes = [];
 let edges = [];
 let vehicles = [];
 let selectedNodeId = 0; // Central Hub Junction by default
-let policy = 'dynamic'; // 'fixed' or 'dynamic'
+let policy = 'dynamic'; // 'fixed', 'smart', or 'dynamic'
 let spawnRate = 45; // vehicles spawned per minute
 let maxGreenTime = 45; // seconds
 const minGreenTime = 7; // seconds
@@ -22,14 +33,6 @@ let vehiclesClearedDynamic = 0;
 let runTime = 0; // seconds
 let activeAmbulances = [];
 
-// Zoom & Pan
-let zoom = 1.0;
-let offsetX = 0;
-let offsetY = 0;
-let isDragging = false;
-let startDragX = 0;
-let startDragY = 0;
-
 // Performance Tracking for A* vs Dijkstra
 let totalAStarNodesExpanded = 0;
 let aStarRouteCount = 0;
@@ -40,14 +43,87 @@ window.logAStarPerformance = (count) => {
     window.avgAStarNodesExpanded = (totalAStarNodesExpanded / aStarRouteCount).toFixed(1);
 };
 
-// Intersection Graph Structure representing urban hotspots
+// Convert Lat/Lng to Canvas projected pixel coordinates
+function getCanvasCoord(lat, lng) {
+    const latLng = L.latLng(lat, lng);
+    const containerPoint = map.latLngToContainerPoint(latLng);
+    return { x: containerPoint.x, y: containerPoint.y };
+}
+
+// Sync canvas container size with map container
+function syncCanvasSize() {
+    const rect = map.getContainer().getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+}
+syncCanvasSize();
+window.addEventListener('resize', syncCanvasSize);
+
+// Redraw hook on map zoom/pan
+map.on('move zoom viewreset', () => {
+    // Redraw loop runs via requestAnimationFrame, automatically using updated container points
+});
+
+// Helper for license plates
+function generateMockPlateNumber() {
+    const states = ["KA", "DL", "MH", "HR", "UP", "TN"];
+    const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const randState = states[Math.floor(Math.random() * states.length)];
+    const randDist = String(Math.floor(Math.random() * 99) + 1).padStart(2, '0');
+    const randChar1 = letters[Math.floor(Math.random() * 26)];
+    const randChar2 = letters[Math.floor(Math.random() * 26)];
+    const randNum = String(Math.floor(Math.random() * 9000) + 1000);
+    return `${randState}-${randDist}-${randChar1}${randChar2}-${randNum}`;
+}
+
+// DB Logging endpoint fetcher
+window.logViolationToDatabase = (vehicleNumber, vehicleType, violationType, location, confidence = 0.95, evidenceImage = null) => {
+    const timestamp = new Date().toISOString();
+    
+    fetch('/api/violations', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            vehicle_number: vehicleNumber,
+            vehicle_type: vehicleType,
+            violation_type: violationType,
+            timestamp: timestamp,
+            location: location,
+            confidence: parseFloat(confidence.toFixed(2)),
+            evidence_image: evidenceImage
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        // Output RAG citation explanation to terminal log
+        if (window.addIncidentLog) {
+            window.addIncidentLog(data.legal_explanation, "var(--accent-cyan)");
+        }
+        // Force refresh the table
+        if (window.refreshViolationsTable) {
+            window.refreshViolationsTable();
+        }
+    })
+    .catch(err => {
+        console.error("Database connection error:", err);
+    });
+};
+
+// Intersection Graph Structure
 class TrafficNode {
-    constructor(id, name, x, y) {
+    constructor(id, name, lat, lng) {
         this.id = id;
         this.name = name;
-        this.x = x;
-        this.y = y;
-        this.radius = 22;
+        this.lat = lat;
+        this.lng = lng;
+        
+        // Pixel coordinates computed dynamically from map projection
+        this.x = 0;
+        this.y = 0;
+        this.radius = 18;
+        
         this.incomingEdges = [];
         this.outgoingEdges = [];
         
@@ -60,13 +136,19 @@ class TrafficNode {
         // Amber Transition States
         this.isTransitioning = false;
         this.transitionTimer = 0;
-        this.transitionDuration = 120; // 2 seconds at 60 fps
+        this.transitionDuration = 120; // 2 seconds
         this.previousPhase = 0;
         
-        // Coordination & Arbitration variables
+        // Preemption
         this.emergencyOverride = false;
         this.emergencyIncomingEdge = null;
         this.arbitrationMessage = "";
+    }
+
+    updatePosition() {
+        const pt = getCanvasCoord(this.lat, this.lng);
+        this.x = pt.x;
+        this.y = pt.y;
     }
 
     updateSignal() {
@@ -90,7 +172,6 @@ class TrafficNode {
             if (this.emergencyIncomingEdge !== null) {
                 const phaseRequired = TrafficAlgorithms.getPhaseForEdge(this, edges.find(e => e.id === this.emergencyIncomingEdge), edges);
                 if (this.activePhase !== phaseRequired) {
-                    // For emergency overrides, switch immediately (amber is bypassed for safety corridor clearance)
                     this.activePhase = phaseRequired;
                     this.phaseTimer = 0;
                 }
@@ -102,13 +183,12 @@ class TrafficNode {
 
         // 4. Evaluate phase changes based on current policy
         if (policy === 'fixed') {
-            const fixedDuration = (maxGreenTime / 2) * 60; // standard fixed cycle
+            const fixedDuration = (maxGreenTime / 2) * 60;
             if (this.phaseTimer >= fixedDuration) {
                 targetPhase = 1 - this.activePhase;
             }
         } else if (policy === 'smart') {
-            // Smart Adaptive Timer: Calculates green time dynamically based on the queue length.
-            // Green Ticks = minGreenTime + queueCount * 3.5 seconds
+            // Smart Adaptive Timer: Calculates green time based on the active queue length
             const activeQueue = this.calculatePhaseQueueLength(this.activePhase);
             const dynamicGreenTicks = Math.min(this.maxGreenTicks, this.minGreenTicks + (activeQueue * 3.5 * 60));
             
@@ -117,23 +197,20 @@ class TrafficNode {
             }
         } else {
             // OpenCV Max-Pressure Coordination Logic
-            // Evaluate pressure balances at regular intervals to allow traffic packets to pass and honor minimum green times
             if (this.phaseTimer >= this.minGreenTicks && this.phaseTimer % 60 === 0) {
                 const decision = TrafficAlgorithms.calculateMaxPressurePhase(this, edges);
-                
-                // If the algorithm demands a phase switch or we exceed the safety cap
                 if (decision.phase !== this.activePhase || this.phaseTimer >= this.maxGreenTicks) {
                     targetPhase = decision.phase;
                 }
             }
         }
 
-        // 5. Trigger Amber Transition if a phase change is scheduled
+        // 5. Trigger Amber Transition
         if (targetPhase !== this.activePhase) {
             this.isTransitioning = true;
             this.transitionTimer = this.transitionDuration;
             this.previousPhase = this.activePhase;
-            this.activePhase = targetPhase; // Phase state updates, but previous phase is drawn orange
+            this.activePhase = targetPhase;
         }
     }
 
@@ -170,14 +247,13 @@ class TrafficNode {
     }
 
     draw() {
-        // Draw glow if selected
+        // Draw selection glow
         if (selectedNodeId === this.id) {
             ctx.beginPath();
             ctx.arc(this.x, this.y, this.radius + 6, 0, Math.PI * 2);
             ctx.strokeStyle = 'rgba(6, 182, 212, 0.4)';
             ctx.lineWidth = 2;
             ctx.stroke();
-            
             ctx.fillStyle = 'rgba(6, 182, 212, 0.15)';
             ctx.fill();
         }
@@ -194,14 +270,13 @@ class TrafficNode {
         // Traffic lights colors
         const green = '#10B981';
         const red = '#EF4444';
-        const amber = '#F59E0B'; // Orange
+        const amber = '#F59E0B';
         const blue = '#3B82F6';
 
         let p0Color = red;
         let p1Color = red;
 
         if (this.isTransitioning) {
-            // Outgoing phase is Amber, incoming phase is Red
             p0Color = this.previousPhase === 0 ? amber : red;
             p1Color = this.previousPhase === 1 ? amber : red;
         } else if (this.emergencyOverride) {
@@ -212,34 +287,30 @@ class TrafficNode {
             p1Color = this.activePhase === 1 ? green : red;
         }
 
-        // Draw mini light points (Visualizing traffic lights)
-        // Vertical light dots
+        // Draw mini light points (vertical / horizontal indicators)
         ctx.beginPath();
-        ctx.arc(this.x, this.y - 8, 4, 0, Math.PI * 2);
+        ctx.arc(this.x, this.y - 7, 3, 0, Math.PI * 2);
+        ctx.fillStyle = p0Color;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(this.x, this.y + 7, 3, 0, Math.PI * 2);
         ctx.fillStyle = p0Color;
         ctx.fill();
 
         ctx.beginPath();
-        ctx.arc(this.x, this.y + 8, 4, 0, Math.PI * 2);
-        ctx.fillStyle = p0Color;
-        ctx.fill();
-
-        // Horizontal light dots
-        ctx.beginPath();
-        ctx.arc(this.x - 8, this.y, 4, 0, Math.PI * 2);
+        ctx.arc(this.x - 7, this.y, 3, 0, Math.PI * 2);
         ctx.fillStyle = p1Color;
         ctx.fill();
-
         ctx.beginPath();
-        ctx.arc(this.x + 8, this.y, 4, 0, Math.PI * 2);
+        ctx.arc(this.x + 7, this.y, 3, 0, Math.PI * 2);
         ctx.fillStyle = p1Color;
         ctx.fill();
 
         // Node Title
         ctx.fillStyle = '#F3F4F6';
-        ctx.font = 'bold 10px var(--font-sans)';
+        ctx.font = 'bold 9px var(--font-sans)';
         ctx.textAlign = 'center';
-        ctx.fillText(this.name, this.x, this.y - this.radius - 8);
+        ctx.fillText(this.name, this.x, this.y - this.radius - 6);
     }
 }
 
@@ -248,7 +319,7 @@ class TrafficEdge {
         this.id = id;
         this.startNode = startNode;
         this.endNode = endNode;
-        this.width = 16;
+        this.width = 12;
         this.maxSpeed = 2.5; 
         this.capacity = 12;
     }
@@ -258,25 +329,25 @@ class TrafficEdge {
     }
 
     draw() {
-        // Draw double lanes
+        // Draw main road lane representation
         ctx.beginPath();
         ctx.moveTo(this.startNode.x, this.startNode.y);
         ctx.lineTo(this.endNode.x, this.endNode.y);
-        ctx.strokeStyle = 'rgba(31, 41, 55, 0.6)';
+        ctx.strokeStyle = 'rgba(31, 41, 55, 0.4)';
         ctx.lineWidth = this.width;
         ctx.stroke();
 
-        // Draw middle dashed line
+        // Draw center dashed lines
         ctx.beginPath();
         ctx.moveTo(this.startNode.x, this.startNode.y);
         ctx.lineTo(this.endNode.x, this.endNode.y);
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
         ctx.lineWidth = 1;
-        ctx.setLineDash([5, 10]);
+        ctx.setLineDash([5, 8]);
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Highlight heavily congested edges
+        // Highlight congested lines in red
         const queue = this.getQueueLength();
         if (queue > 6) {
             ctx.beginPath();
@@ -295,10 +366,11 @@ class Vehicle {
         this.currentEdgeId = startEdge.id;
         this.progress = 0.0;
         this.type = type;
+        this.plateNumber = generateMockPlateNumber();
         
-        // Dimensions and speed configs based on vehicle class
-        this.width = type === 'bus' ? 12 : type === 'fire_engine' ? 13 : type === 'car' ? 8 : type === 'police' ? 8 : type === 'ambulance' ? 9 : 6;
-        this.height = type === 'bus' ? 22 : type === 'fire_engine' ? 24 : type === 'car' ? 14 : type === 'police' ? 15 : type === 'ambulance' ? 16 : 10;
+        // Dimensions
+        this.width = type === 'bus' ? 10 : type === 'fire_engine' ? 11 : type === 'car' ? 7 : type === 'police' ? 7 : type === 'ambulance' ? 8 : 5;
+        this.height = type === 'bus' ? 20 : type === 'fire_engine' ? 22 : type === 'car' ? 12 : type === 'police' ? 13 : type === 'ambulance' ? 14 : 9;
         
         this.maxSpeed = type === 'bike' ? 2.8 : ['ambulance', 'police', 'fire_engine'].includes(type) ? 3.8 : type === 'bus' ? 1.8 : 2.2;
         this.speed = this.maxSpeed;
@@ -312,12 +384,14 @@ class Vehicle {
         this.waitTicks = 0;
         this.isWaiting = false;
         
-        // Safety violations and incident indicators
+        // Infractions simulation configuration
         this.isAccident = false;
         this.hasRedLightViolation = false;
         this.hasSpeedViolation = false;
+        this.hasHelmetViolation = (type === 'bike' && Math.random() < 0.05); // 5% no helmet
+        this.hasSeatbeltViolation = (type === 'car' && Math.random() < 0.04); // 4% no seatbelt
+        this.hasComplianceLogged = false;
         
-        // Destination Selection & A* routing pathing
         this.path = [];
         this.selectDestination(startEdge.startNode.id);
     }
@@ -328,7 +402,6 @@ class Vehicle {
             destNodeId = Math.floor(Math.random() * nodes.length);
         }
 
-        // Calculate dynamic shortest path using A* Search Algorithm
         const computedPath = TrafficAlgorithms.findOptimalPathAStar(
             startNodeId,
             destNodeId,
@@ -341,7 +414,6 @@ class Vehicle {
         if (computedPath) {
             this.path = computedPath;
         } else if (currentEdge) {
-            // Fallback: simple random walk pathing with safety checks
             this.path = [startNodeId, currentEdge.endNode.id];
             let currentNode = nodes.find(n => n.id === this.path[1]);
             for (let i = 0; i < 3; i++) {
@@ -378,7 +450,6 @@ class Vehicle {
         
         const isEmergency = ['ambulance', 'police', 'fire_engine'].includes(this.type);
 
-        // Space buffer: detect vehicle in front
         let leadVehicle = null;
         let minDistance = Infinity;
 
@@ -392,72 +463,88 @@ class Vehicle {
             }
         });
 
-        // Speed management
         let targetSpeed = this.maxSpeed;
-        
-        // Signal logic at the end of the edge (near junction)
         const remainingDist = (1.0 - this.progress) * distance;
         
-        if (remainingDist < 40) {
+        if (remainingDist < 30) {
             const junction = edge.endNode;
             const myPhase = TrafficAlgorithms.getPhaseForEdge(junction, edge, edges);
             
-            // If traffic light is RED for our phase
             if (junction.activePhase !== myPhase) {
                 if (!isEmergency) {
-                    // Check if light is Amber (transitioning from my phase)
                     if (junction.isTransitioning && junction.previousPhase === myPhase) {
-                        // Amber Light Behavior: If close enough (dist < 28px) we pass, else we slow down to stop
-                        if (remainingDist > 28) {
+                        if (remainingDist > 20) {
                             targetSpeed = 0;
                         }
                     } else {
-                        // Red Light: Complete stop
                         targetSpeed = 0;
 
-                        // Law Violation Detection: crossing stop line on Red
+                        // Red Light Camera Capture
                         if (remainingDist < 12 && this.speed > 0.8 && !this.hasRedLightViolation) {
                             this.hasRedLightViolation = true;
                             if (window.addIncidentLog) {
-                                window.addIncidentLog(`RED LIGHT VIOLATION: ${this.type.toUpperCase()} #${this.id} crossed stop line at ${junction.name}. Fined.`, "var(--traffic-red)");
+                                window.addIncidentLog(`[RED-LIGHT CAMERA] Vehicle ${this.plateNumber} crossed the line on red at ${junction.name}. Capturing database record...`, "var(--traffic-red)");
+                            }
+                            if (window.logViolationToDatabase) {
+                                window.logViolationToDatabase(this.plateNumber, this.type, "red_light_violation", junction.name, 0.92 + Math.random()*0.07);
                             }
                         }
                     }
                 }
             }
+
+            // Check Helmet / Seatbelt compliance near intersections (simulating OCR and CV camera triggers)
+            if (remainingDist < 25 && !this.hasComplianceLogged) {
+                this.hasComplianceLogged = true;
+                if (this.type === 'bike' && this.hasHelmetViolation) {
+                    if (window.addIncidentLog) {
+                        window.addIncidentLog(`[CV HELMET SCAN] Rider on bike ${this.plateNumber} detected without helmet at ${junction.name}. Logging offense.`, "var(--traffic-red)");
+                    }
+                    if (window.logViolationToDatabase) {
+                        window.logViolationToDatabase(this.plateNumber, this.type, "helmet_non_compliance", junction.name, 0.95 + Math.random()*0.04);
+                    }
+                } else if (this.type === 'car' && this.hasSeatbeltViolation) {
+                    if (window.addIncidentLog) {
+                        window.addIncidentLog(`[CV SEATBELT SCAN] Driver in car ${this.plateNumber} detected without seatbelt at ${junction.name}. Logging offense.`, "var(--traffic-red)");
+                    }
+                    if (window.logViolationToDatabase) {
+                        window.logViolationToDatabase(this.plateNumber, this.type, "seatbelt_non_compliance", junction.name, 0.93 + Math.random()*0.06);
+                    }
+                }
+            }
         }
 
-        // Keep distance to lead vehicle
+        // Buffer space
         if (leadVehicle) {
-            const safetyBuffer = this.type === 'bus' || this.type === 'fire_engine' ? 24 : 16;
+            const safetyBuffer = this.type === 'bus' || this.type === 'fire_engine' ? 20 : 14;
             if (minDistance < safetyBuffer) {
-                targetSpeed = 0; // stop
+                targetSpeed = 0;
             } else if (minDistance < safetyBuffer * 2) {
                 targetSpeed = Math.min(targetSpeed, leadVehicle.speed * 0.85);
             }
         }
 
-        // Apply acceleration/deceleration
         if (this.speed > targetSpeed) {
             this.speed = Math.max(targetSpeed, this.speed - 0.2);
         } else if (this.speed < targetSpeed) {
             this.speed = Math.min(targetSpeed, this.speed + 0.15);
         }
 
-        // Progress along road
         const progressIncrement = this.speed / distance;
         this.progress += progressIncrement;
 
-        // Speed limit violation check
+        // Speed Violation Check (Traps on roads)
         if (this.type === 'bike' && this.speed > 2.7 && this.progress > 0.3 && this.progress < 0.7 && !this.hasSpeedViolation && Math.random() < 0.003) {
             this.hasSpeedViolation = true;
+            const speedKmh = Math.round(this.speed * 28);
             if (window.addIncidentLog) {
-                const speedKmh = Math.round(this.speed * 28);
-                window.addIncidentLog(`SPEEDING: Bike #${this.id} clocked at ${speedKmh} km/h (Limit: 60 km/h) on ${edge.startNode.name} -> ${edge.endNode.name}.`, "var(--traffic-amber)");
+                window.addIncidentLog(`[SPEED TRAP ALERT] Vehicle ${this.plateNumber} clocked at ${speedKmh} km/h (Limit: 60 km/h) on ${edge.startNode.name} -> ${edge.endNode.name}.`, "var(--traffic-amber)");
+            }
+            if (window.logViolationToDatabase) {
+                window.logViolationToDatabase(this.plateNumber, this.type, "speeding", `${edge.startNode.name} -> ${edge.endNode.name}`, 0.94 + Math.random()*0.05);
             }
         }
 
-        // Check if vehicle stopped
         if (this.speed < 0.1) {
             this.isWaiting = true;
             this.waitTicks++;
@@ -470,7 +557,7 @@ class Vehicle {
             this.isWaiting = false;
         }
 
-        // Transition to next edge when complete
+        // Loop transitions
         if (this.progress >= 0.98) {
             const currentEndNodeId = edge.endNode.id;
             const nextNodeIndexInPath = this.path.indexOf(currentEndNodeId);
@@ -483,6 +570,7 @@ class Vehicle {
                     this.currentEdgeId = nextEdge.id;
                     this.progress = 0.0;
                     this.speed = this.maxSpeed;
+                    this.hasComplianceLogged = false; // re-enable compliance scanner for next junction
                 } else {
                     this.retire();
                 }
@@ -499,24 +587,21 @@ class Vehicle {
             vehiclesClearedDynamic++;
         }
         
-        // Check if this is a rescue ambulance arriving to clear an accident scene
         if (this.type === 'ambulance' && this.rescueTargetVehicleId !== undefined) {
             const targetVehicle = vehicles.find(v => v.id === this.rescueTargetVehicleId);
             if (targetVehicle) {
                 targetVehicle.isAccident = false;
                 targetVehicle.speed = targetVehicle.maxSpeed;
                 if (window.addIncidentLog) {
-                    window.addIncidentLog(`RESCUE SUCCESS: Ambulance cleared accident scene. Traffic flow restored.`, "var(--traffic-green)");
+                    window.addIncidentLog(`[RESCUE COMPLETED] Ambulance cleared accident site on ${edges.find(e => e.id === targetVehicle.currentEdgeId).startNode.name}. Flow restored.`, "var(--traffic-green)");
                 }
             }
         }
         
-        // Remove from list
         vehicles = vehicles.filter(v => v.id !== this.id);
         const isEmergency = ['ambulance', 'police', 'fire_engine'].includes(this.type);
         if (isEmergency) {
             activeAmbulances = activeAmbulances.filter(a => a.id !== this.id);
-            // Re-arbitrate signals at all junctions immediately
             nodes.forEach(n => {
                 TrafficAlgorithms.arbitrateJunctionEmergencies(n, edges, vehicles);
             });
@@ -534,19 +619,17 @@ class Vehicle {
 
         const positionX = startX + (endX - startX) * this.progress;
         const positionY = startY + (endY - startY) * this.progress;
-
         const angle = Math.atan2(endY - startY, endX - startX);
 
         ctx.save();
         ctx.translate(positionX, positionY);
         ctx.rotate(angle);
 
-        // Render emergency siren overlay circles
         const isEmergency = ['ambulance', 'police', 'fire_engine'].includes(this.type);
         if (isEmergency) {
             const flash = Math.floor(Date.now() / 130) % 2 === 0;
             ctx.beginPath();
-            ctx.arc(0, 0, 18, 0, Math.PI * 2);
+            ctx.arc(0, 0, 14, 0, Math.PI * 2);
             
             if (this.type === 'fire_engine') {
                 ctx.fillStyle = flash ? 'rgba(239, 68, 68, 0.45)' : 'rgba(150, 20, 20, 0.45)';
@@ -561,24 +644,11 @@ class Vehicle {
             ctx.fillRect(-this.height/2, -this.width/2, this.height, this.width);
             
             if (this.type === 'ambulance') {
-                // Cross markings
                 ctx.fillStyle = '#FFFFFF';
                 ctx.fillRect(-2, -this.width/2 + 2, 4, this.width - 4);
                 ctx.fillRect(-this.height/2 + 3, -2, this.height - 6, 4);
-            } else if (this.type === 'police') {
-                // Roof bars
-                ctx.fillStyle = '#FFFFFF';
-                ctx.fillRect(-2, -this.width/2 + 1, 5, this.width - 2);
-                ctx.fillStyle = '#1E3A8A';
-                ctx.fillRect(0, -this.width/4, 1, this.width/2);
-            } else if (this.type === 'fire_engine') {
-                // Warning stripes
-                ctx.fillStyle = '#F59E0B';
-                ctx.fillRect(-this.height/2 + 3, -this.width/2 + 1, 2, this.width - 2);
-                ctx.fillRect(this.height/2 - 5, -this.width/2 + 1, 2, this.width - 2);
             }
         } else {
-            // Normal vehicle box
             ctx.fillStyle = this.color;
             ctx.fillRect(-this.height/2, -this.width/2, this.height, this.width);
             ctx.fillStyle = 'rgba(0,0,0,0.5)';
@@ -586,34 +656,32 @@ class Vehicle {
         }
 
         if (this.isAccident) {
-            // Draw warning hazard flash
             const flash = Math.floor(Date.now() / 250) % 2 === 0;
-            ctx.rotate(-angle); // un-rotate to keep text upright
+            ctx.rotate(-angle);
             ctx.beginPath();
-            ctx.arc(0, 0, 16, 0, Math.PI * 2);
-            ctx.fillStyle = flash ? 'rgba(239, 68, 68, 0.45)' : 'rgba(245, 158, 11, 0.15)';
+            ctx.arc(0, 0, 14, 0, Math.PI * 2);
+            ctx.fillStyle = flash ? 'rgba(239, 68, 68, 0.5)' : 'rgba(245, 158, 11, 0.2)';
             ctx.fill();
-            
             ctx.fillStyle = '#FFFFFF';
-            ctx.font = 'bold 10px var(--font-sans)';
+            ctx.font = 'bold 9px var(--font-sans)';
             ctx.textAlign = 'center';
             ctx.fillText("⚠️", 0, 3);
-            ctx.rotate(angle); // restore
+            ctx.rotate(angle);
         }
 
         ctx.restore();
     }
 }
 
-// Initialize Graph Structure (Urban Junctions)
+// Initialize Graph Network (Real Geolocation coordinates in Bengaluru)
 function initNetwork() {
     nodes = [
-        new TrafficNode(0, "Central Hub Junction", 400, 350),
-        new TrafficNode(1, "North-East Junction", 560, 230),
-        new TrafficNode(2, "South-East Junction", 560, 470),
-        new TrafficNode(3, "West Junction", 240, 350),
-        new TrafficNode(4, "South Bypass Junction", 400, 500),
-        new TrafficNode(5, "North Circle", 400, 200)
+        new TrafficNode(0, "Central Hub Junction", 12.9176, 77.6244),
+        new TrafficNode(1, "North-East Junction", 12.9348, 77.6322),
+        new TrafficNode(2, "South-East Junction", 12.9116, 77.6388),
+        new TrafficNode(3, "West Junction", 12.9166, 77.6080),
+        new TrafficNode(4, "South Bypass Junction", 12.8488, 77.6599),
+        new TrafficNode(5, "North Circle", 12.9602, 77.5976)
     ];
 
     let edgeIdCounter = 0;
@@ -644,7 +712,7 @@ function initNetwork() {
     addRoad(nodes[3], nodes[5]); // West Junction <-> North Circle
 }
 
-// Spawning Logic
+// Spawning vehicles
 let spawnTimer = 0;
 let vehicleIdCounter = 0;
 
@@ -659,85 +727,36 @@ function spawnVehicle(type = 'car', specificEdge = null) {
     return v;
 }
 
-// Zoom & Pan Canvas Helpers
-function setupCanvas() {
-    const parent = canvas.parentElement;
-    canvas.width = parent.clientWidth;
-    canvas.height = parent.clientHeight;
+// Convert coordinates to projected pixels
+function updateNodeCoordinates() {
+    nodes.forEach(node => {
+        node.updatePosition();
+    });
 }
 
-window.addEventListener('resize', () => {
-    setupCanvas();
-});
-
-// Canvas Pan and Zoom Event Listeners
-canvas.addEventListener('mousedown', (e) => {
-    isDragging = true;
-    startDragX = e.clientX - offsetX;
-    startDragY = e.clientY - offsetY;
-});
-
-window.addEventListener('mousemove', (e) => {
-    if (isDragging) {
-        offsetX = e.clientX - startDragX;
-        offsetY = e.clientY - startDragY;
-    }
-});
-
-canvas.addEventListener('mouseup', (e) => {
-    isDragging = false;
-    
-    const dragDist = Math.hypot(e.clientX - startDragX - offsetX, e.clientY - startDragY - offsetY);
-    if (dragDist < 5) {
-        const rect = canvas.getBoundingClientRect();
-        const clickX = (e.clientX - rect.left - offsetX) / zoom;
-        const clickY = (e.clientY - rect.top - offsetY) / zoom;
+// Add invisible interactive Leaflet shapes on top of the real map to handle map selection clicks
+function initInteractiveMapTriggers() {
+    nodes.forEach(node => {
+        const marker = L.circleMarker([node.lat, node.lng], {
+            radius: 18,
+            fillColor: 'transparent',
+            color: 'transparent',
+            interactive: true
+        }).addTo(map);
         
-        let clickedNode = null;
-        nodes.forEach(n => {
-            const dist = Math.hypot(n.x - clickX, n.y - clickY);
-            if (dist < n.radius + 10) {
-                clickedNode = n;
+        marker.on('click', () => {
+            selectedNodeId = node.id;
+            if (window.updateCVFeedJunction) {
+                window.updateCVFeedJunction(node);
             }
         });
+    });
+}
 
-        if (clickedNode) {
-            selectedNodeId = clickedNode.id;
-            updateCVFeedJunction(clickedNode);
-        }
-    }
-});
-
-canvas.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    const zoomFactor = 1.1;
-    if (e.deltaY < 0) {
-        zoom *= zoomFactor;
-    } else {
-        zoom /= zoomFactor;
-    }
-    zoom = Math.max(0.5, Math.min(3.0, zoom));
-});
-
-document.getElementById('btn-zoom-in').addEventListener('click', () => {
-    zoom = Math.min(3.0, zoom * 1.2);
-});
-
-document.getElementById('btn-zoom-out').addEventListener('click', () => {
-    zoom = Math.max(0.5, zoom / 1.2);
-});
-
-document.getElementById('btn-reset').addEventListener('click', () => {
-    zoom = 1.0;
-    offsetX = 0;
-    offsetY = 0;
-});
-
-// Main Loop
+// Main Frame Rendering Loop
 function updateSim() {
     runTime += 1 / 60;
     
-    // Spawn Vehicles based on spawnRate
     spawnTimer++;
     const framesPerSpawn = (60 * 60) / spawnRate;
     if (spawnTimer >= framesPerSpawn) {
@@ -746,68 +765,42 @@ function updateSim() {
         if (roll < 0.22) type = 'bike';
         else if (roll < 0.31) type = 'bus';
         else if (roll < 0.33) {
-            // Organically spawn emergency vehicles 
             const types = ['ambulance', 'police', 'fire_engine'];
             type = types[Math.floor(Math.random() * types.length)];
         }
         
-        // Safety cap: Prevent browser slowdown or crash under heavy congestion by limiting active vehicles
-        if (vehicles.length < 180) {
+        // Safety cap
+        if (vehicles.length < 150) {
             spawnVehicle(type);
         }
         spawnTimer = 0;
     }
 
-    // Update Nodes (Signals and Arbitration)
+    // Dynamic Leaflet container point calculations
+    updateNodeCoordinates();
+
+    // Update nodes signal states
     nodes.forEach(n => n.updateSignal());
 
-    // Update Vehicles
+    // Update active vehicles positions
     vehicles.forEach(v => v.update());
 
-    // Clear and redraw canvas
+    // Clear Canvas and Redraw projected network
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    ctx.save();
-    ctx.translate(offsetX, offsetY);
-    ctx.scale(zoom, zoom);
-
-    // Draw grid lines in background
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.012)';
-    ctx.lineWidth = 1;
-    const gridSize = 40;
-    for (let x = -2000; x < 2000; x += gridSize) {
-        ctx.beginPath();
-        ctx.moveTo(x, -2000);
-        ctx.lineTo(x, 2000);
-        ctx.stroke();
-    }
-    for (let y = -2000; y < 2000; y += gridSize) {
-        ctx.beginPath();
-        ctx.moveTo(-2000, y);
-        ctx.lineTo(2000, y);
-        ctx.stroke();
-    }
-
-    // Draw Edges
     edges.forEach(e => e.draw());
-
-    // Draw Nodes
     nodes.forEach(n => n.draw());
-
-    // Draw Vehicles
     vehicles.forEach(v => v.draw());
 
-    ctx.restore();
-    
     requestAnimationFrame(updateSim);
 }
 
-// Initialization trigger
+// Initialization triggers
 initNetwork();
-setupCanvas();
+initInteractiveMapTriggers();
 requestAnimationFrame(updateSim);
 
-// Expose elements globally
+// Expose variables globally
 window.nodes = nodes;
 window.edges = edges;
 window.vehicles = vehicles;
@@ -827,7 +820,6 @@ window.setMaxGreen = (secs) => {
     });
 };
 window.spawnAmbulance = () => {
-    // Spawn a random emergency vehicle on outer borders
     const types = ['ambulance', 'police', 'fire_engine'];
     const randType = types[Math.floor(Math.random() * types.length)];
     const outerEdges = edges.filter(e => e.startNode.id === 5 || e.startNode.id === 4 || e.startNode.id === 3);
@@ -862,10 +854,10 @@ window.triggerAccident = () => {
     const roadName = edge ? `${edge.startNode.name} to ${edge.endNode.name}` : "road";
     
     if (window.addIncidentLog) {
-        window.addIncidentLog(`CRASH DETECTED: Accident on ${roadName} involving vehicle #${target.id}. Dispatching rescue...`, "var(--traffic-red)");
+        window.addIncidentLog(`[CRASH ALERT] Traffic accident reported on ${roadName} involving vehicle #${target.id}. Notifying medical units...`, "var(--traffic-red)");
     }
     
-    // Spawn rescue ambulance
+    // Auto-dispatch rescue ambulance
     const amb = spawnVehicle('ambulance');
     if (edge) {
         const startNodeId = amb.path[0] || 5;

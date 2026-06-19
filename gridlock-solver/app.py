@@ -10,6 +10,42 @@ import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from ultralytics import YOLO
+import sqlite3
+from pydantic import BaseModel
+from typing import Optional
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+def init_db():
+    conn = sqlite3.connect("violations.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS violations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vehicle_number TEXT,
+            vehicle_type TEXT,
+            violation_type TEXT,
+            timestamp TEXT,
+            location TEXT,
+            confidence REAL,
+            evidence_image TEXT,
+            legal_explanation TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+# Initialize violations database
+init_db()
+
+class ViolationItem(BaseModel):
+    vehicle_number: str
+    vehicle_type: str
+    violation_type: str
+    timestamp: str
+    location: str
+    confidence: float
+    evidence_image: Optional[str] = None
 
 app = FastAPI(title="Gridlock Solver CV Backend")
 
@@ -159,6 +195,111 @@ def draw_synthetic_traffic_frame(tick):
     cv2.putText(frame, "CCTV_CAM_SYNTHETIC_01", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1, cv2.LINE_AA)
     
     return frame, vehicles
+
+LEGAL_KB = {
+    "helmet_non_compliance": {
+        "section": "Section 129 of the Motor Vehicles Act, 1988",
+        "penalty": "Fine of INR 1,000 and suspension of driving license for 3 months.",
+        "safety": "Protective helmets reduce the risk of head injury by 69% and death by 42% in crashes."
+    },
+    "seatbelt_non_compliance": {
+        "section": "Rule 138(3) of the Central Motor Vehicles Rules, 1989",
+        "penalty": "Fine of INR 1,000.",
+        "safety": "Seat belts reduce front-seat occupant death risk by 45% and serious injury risk by 50%."
+    },
+    "wrong_side_driving": {
+        "section": "Section 184(g) of the Motor Vehicles (Amendment) Act, 2019",
+        "penalty": "Fine up to INR 5,000 and/or imprisonment up to 1 year.",
+        "safety": "Driving against traffic flow increases head-on collision risks by over 400%."
+    },
+    "red_light_violation": {
+        "section": "Section 119 read with Section 177 of the Motor Vehicles Act, 1988",
+        "penalty": "Fine of INR 1,000 and/or license suspension.",
+        "safety": "Obeying traffic signals is mandatory. Red-light running is the leading cause of urban intersection T-bone crashes."
+    },
+    "speeding": {
+        "section": "Section 112 read with Section 183 of the Motor Vehicles Act, 1988",
+        "penalty": "Fine of INR 1,000 to INR 2,000 for light motor vehicles.",
+        "safety": "Speeding extends braking distance and increases crash kinetic impact energy exponentially."
+    },
+    "illegal_parking": {
+        "section": "Section 122 read with Section 177 of the Motor Vehicles Act, 1988",
+        "penalty": "Fine of INR 500 + vehicle towing charges.",
+        "safety": "Obstructive parking narrows roadways, creating vehicle bottlenecks and sideswipe hazards."
+    }
+}
+
+def generate_rag_explanation(violation_type: str, vehicle_number: str, location: str, timestamp: str) -> str:
+    kb_entry = LEGAL_KB.get(violation_type)
+    if not kb_entry:
+        return f"Vehicle {vehicle_number} committed a violation of class '{violation_type}' at {location} on {timestamp}."
+    
+    # RAG Citation Construction (Retrieving statutory clauses and generating explanation)
+    citation = (
+        f"OFFICIAL E-CHALLAN CITATION: On {timestamp}, vehicle {vehicle_number} was detected at {location} "
+        f"violating traffic regulations of class '{violation_type.replace('_', ' ').upper()}'. "
+        f"According to the law ({kb_entry['section']}), this offense is subject to a {kb_entry['penalty']} "
+        f"Safety Warning: {kb_entry['safety']}"
+    )
+    return citation
+
+@app.get("/api/violations")
+def get_violations():
+    conn = sqlite3.connect("violations.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, vehicle_number, vehicle_type, violation_type, timestamp, location, confidence, evidence_image, legal_explanation FROM violations ORDER BY id DESC")
+    rows = cursor.fetchall()
+    conn.close()
+    
+    violations = []
+    for r in rows:
+        violations.append({
+            "id": r[0],
+            "vehicle_number": r[1],
+            "vehicle_type": r[2],
+            "violation_type": r[3],
+            "timestamp": r[4],
+            "location": r[5],
+            "confidence": r[6],
+            "evidence_image": r[7],
+            "legal_explanation": r[8]
+        })
+    return violations
+
+@app.post("/api/violations")
+def add_violation(item: ViolationItem):
+    # Invoke RAG engine to compile the citation explanation
+    explanation = generate_rag_explanation(item.violation_type, item.vehicle_number, item.location, item.timestamp)
+    
+    conn = sqlite3.connect("violations.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO violations (vehicle_number, vehicle_type, violation_type, timestamp, location, confidence, evidence_image, legal_explanation)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (item.vehicle_number, item.vehicle_type, item.violation_type, item.timestamp, item.location, item.confidence, item.evidence_image, explanation))
+    conn.commit()
+    inserted_id = cursor.lastrowid
+    conn.close()
+    
+    return {
+        "id": inserted_id,
+        "vehicle_number": item.vehicle_number,
+        "vehicle_type": item.vehicle_type,
+        "violation_type": item.violation_type,
+        "timestamp": item.timestamp,
+        "location": item.location,
+        "confidence": item.confidence,
+        "legal_explanation": explanation
+    }
+
+@app.post("/api/violations/clear")
+def clear_violations():
+    conn = sqlite3.connect("violations.db")
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM violations")
+    conn.commit()
+    conn.close()
+    return {"status": "success", "message": "All database violation records cleared."}
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -317,6 +458,9 @@ async def websocket_endpoint(websocket: WebSocket):
     finally:
         if cap is not None:
             cap.release()
+
+# Serve static files (HTML, JS, CSS) at the root
+app.mount("/", StaticFiles(directory=os.path.dirname(os.path.abspath(__file__)), html=True), name="static")
 
 if __name__ == "__main__":
     # Port 8000
