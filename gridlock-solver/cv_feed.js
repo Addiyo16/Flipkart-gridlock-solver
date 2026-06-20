@@ -16,9 +16,10 @@ function setupCctvCanvas() {
     cctvCanvas.height = cctvCanvas.parentElement.clientHeight;
 }
 
-// Connect to the FastAPI WebSocket server
 function connectWebSocket() {
-    ws = new WebSocket('ws://localhost:8000/ws');
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsHost = window.location.host || 'localhost:8000';
+    ws = new WebSocket(`${protocol}//${wsHost}/ws`);
     
     ws.onopen = () => {
         console.log("Successfully connected to YOLOv8 CV Backend");

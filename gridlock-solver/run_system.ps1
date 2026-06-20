@@ -17,6 +17,6 @@ Start-Sleep -Seconds 5
 
 # 3. Open frontend dashboard
 Write-Host "Opening Frontend Dashboard..." -ForegroundColor Green
-Start-Process (Join-Path $ScriptDir "index.html")
+Start-Process "http://localhost:8000/"
 
 Write-Host "System started successfully! Open browser console to verify A* routing execution times." -ForegroundColor Cyan
