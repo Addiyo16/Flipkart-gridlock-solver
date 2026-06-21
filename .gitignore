@@ -20,3 +20,7 @@ Thumbs.db
 .idea/
 .gemini/
 antigravity/
+
+# SQLite Database Files
+*.db
+violations.db

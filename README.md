@@ -1,62 +1,86 @@
-# IntelliFlow: AI-Powered Smart Traffic Management and Emergency Response System
+# IntelliFlow: AI-Powered Traffic Violation Detection & Enforcement Platform
 
-IntelliFlow is an advanced, industry-grade Intelligent Traffic Management System (ITMS) built to resolve urban gridlocks. It features a **Hybrid Edge-Cloud Architecture** that combines offline Machine Learning demand models with real-time Computer Vision (YOLOv8 + PyTorch), decentralized Max-Pressure signal controllers, dynamic A* routing, automated law enforcement, and emergency rescue preemption.
+IntelliFlow is an advanced, industry-grade traffic violation detection and automated enforcement platform built to scale urban law compliance. It features a high-performance computer vision pipeline (YOLOv8 + PyTorch) designed to automatically process traffic images, localize vehicles, classify traffic infractions, extract license plates using OCR, and log annotated evidence into a relational database. It leverages a local Statutory RAG (Retrieval-Augmented Generation) Engine to link violations directly to penal codes and compile court-ready warning warnings. 
 
-The system is now fully self-contained, serving both the Python FastAPI backend APIs and the premium responsive HTML/JS Leaflet.js map dashboard on a unified port.
+Additionally, the platform includes adaptive traffic optimization policies (decentralized Max-Pressure control and A* heap-based preemption) as future scale-up extensions.
 
 ---
 
-## 🚀 Key Features
+## 🚀 Core Platform Architecture
 
-1. **Unified Violations SQLite Database**:
-   - Integrates a local SQLite database (`violations.db`) that records traffic infractions (Red Light Running, Speeding, Helmet Non-Compliance, and Seatbelt Non-Compliance) in real-time.
-   - Persists plate numbers, zones, infraction classifications, timestamps, detection confidence, and RAG-generated legal warnings.
+```
+                 [ CAMERA FEED / SURVEILLANCE IMAGE ]
+                                  │
+                                  ▼
+                     [ CLAHE & Bilateral Preprocessor ]
+                                  │
+                                  ▼
+                   [ YOLOv8 Bounding Box Detector ]
+                                  │
+         ┌────────────────────────┼────────────────────────┐
+         ▼                        ▼                        ▼
+ [Helmet Compliance]     [Seatbelt Compliance]     [Trajectory Tracker]
+ (Secondary CNN Class)   (Chest Pattern Scanner)   (Wrong-Side Trap)
+         │                        │                        │
+         └────────────────────────┼────────────────────────┘
+                                  ▼
+                     [ License Plate Crop Node ]
+                                  │
+                                  ▼
+                     [ Alphanumeric OCR Engine ]
+                                  │
+                                  ▼
+                  [ SQLite Archive & RAG Linker ]
+                                  │
+                                  ▼
+                  [ Interactive Analytics Console ]
+```
 
-2. **Local RAG (Retrieval-Augmented Generation) Citation Engine**:
-   - Implements a local statutory database containing sections of the **Motor Vehicles Act (1988/2019)** and **Central Motor Vehicles Rules (1989)**.
-   - When a camera registers a violation, the RAG engine dynamically compiles a formal, personalized e-challan legal citation and safety warning.
+---
 
-3. **Premium Geographic Map (Leaflet.js & CartoDB)**:
-   - Replaces abstract layouts with an interactive map using **Leaflet.js** and **CartoDB Dark Matter** tiles representing real geographical nodes.
-   - A transparent physics canvas is layered on top, projecting nodes and vehicle vectors dynamically using Leaflet container coordinates (`map.latLngToContainerPoint`) during active zoom and pan gestures.
+## 🌟 Key Features
 
-4. **Decentralized Max-Pressure Signal Control**:
-   - A localized, collision-free signal policy that maximizes junction throughput by balancing incoming queue pressures against downstream capacity to prevent gridlock.
+### 1. Multi-Class Traffic Violation Scanners
+IntelliFlow implements specialized real-time computer vision classifiers for critical infractions:
+* **Helmet Non-Compliance**: YOLOv8 localizes 2-wheelers. A secondary head-crop classifier evaluates whether the rider is wearing a helmet (Target Precision >96%).
+* **Seatbelt Non-Compliance**: Analyzes car windshield coordinates to segment the driver chest region, verifying diagonal belt patterns.
+* **Triple Riding Classifier**: Evaluates passenger density overlaps within motorcycle bounding boxes, triggering alerts for counts > 2.
+* **Wrong-Side Driving Trap**: Tracks frame-by-frame vehicle center trajectories to compare vector direction angles against designated lane headings.
+* **Red-Light & Stop-Line Violations**: Intersects vehicle bounding-boxes with crosswalk polygons during signal stop phases.
+* **Illegal Parking Monitor**: Computes pixel-level stationary timers for vehicles parked inside restricted tow-away zones.
 
-5. **Smart Adaptive Timer (Queue Extension)**:
-   - A dynamic local signal policy that extends green light durations proportionally to vehicle queue size ($T_{\text{green}} = \min(T_{\text{max}}, T_{\text{min}} + \eta \cdot Q)$) to eliminate empty-lane green light starvation.
+### 2. High-Precision License Plate OCR Engine
+* **Localization**: Runs a dedicated sub-detector on vehicle bounding boxes to crop the license plate zone.
+* **Text Extraction**: Uses OCR models optimized for alphanumeric plate characters (supporting standard, commercial, and green EV plate styles).
+* **Noise Mitigation**: Applies contrast-limited adaptive histogram equalization (CLAHE), deskewing (bilinear transformation), and sharpening to recover text from dirty or angled plates.
+* **Confidence Gating**: Flags captures falling below a 90% confidence score for manual review to eliminate false enforcement actions.
 
-6. **Emergency Green-Wave Preemption & Arbitration**:
-   - Detects emergency vehicle shapes (YOLOv8) and sirens. 
-   - Handles multi-emergency vehicle conflicts at intersections by calculating priority scores:
-     $$\text{Score} = (\text{Priority}_{\text{Type}} \times 1000) + (\text{Queue} \times 15) + \text{WaitTime}$$
-   - Sequentially sets downstream signals to green ahead of the vehicle's arrival along its A*-calculated path.
+### 3. Court-Ready Evidence Generation & SQLite Archive
+* **Annotated Frame Output**: Automatically saves high-definition evidence photos overlaying infraction labels, bounding boxes, and plate crops.
+* **Relational SQLite Schema**: Organizes records with fields for timestamp, location, plate text, infraction type, class confidence, and citation text.
+* **Searchable Registry**: The dashboard presents a searchable records ledger where entries can be filtered by plate or violation type.
+
+### 4. Local Statutory RAG Citation Engine
+* **Legal Knowledge-Base**: Integrates codifications of the **Indian Motor Vehicles Act (1988/2019)** and **Central Motor Vehicles Rules (1989)**.
+* **Dynamic Synthesis**: Translates database logs into official e-challan legal documents. For example, helmet infractions retrieve Section 129, appending legal penalties (INR 1,000 fine + 3-month license suspension) and scientific collision statistics to the notice.
+* **Interactive Modal View**: Clicking any row in the violations panel renders the fully synthesized legal notice overlay.
+
+### 5. Interactive Geographic Analytics Dashboard
+* **Leaflet.js mapping**: Embeds an interactive layout styled with **CartoDB Dark Matter** tiles, flashing warning rings over geographic coordinates during active violations.
+* **Real-time Trend Charting**: Displays spatial-temporal infraction heatmaps, violation comparison bar graphs, and vehicle distribution charts.
+
+### 6. Future Scale-Up Extensions (Smart Signals & Emergency Routing)
+* **Decentralized Max-Pressure Control**: Local signal cycles optimize junction throughput dynamically based on incoming queue pressures.
+* **A* Min-Heap Preemption**: Spawns green-light preemption wave corridors ahead of emergency vehicles (ambulances/fire engines) along dynamic shortest paths.
 
 ---
 
 ## 🛠 Technology Stack
 
-### 1. Deep Learning & Computer Vision (Edge AI)
-* **PyTorch (v2.0+)**: Core runtime engine for deep neural network forward pass inference.
-* **YOLOv8 (Ultralytics)**: Pre-trained object detection model optimized for real-time vehicle classification (cars, buses, trucks, bikes) and emergency vehicle detection.
-* **OpenCV (v4.7+)**: Video capture, frame resizing, colorspace conversions (BGR to HSV), and red/blue strobe frequency color segmentation.
-
-### 2. Backend API & Stream Serving
-* **FastAPI**: High-performance, asynchronous web framework serving both the REST APIs and the front-end static files.
-* **Uvicorn**: Asynchronous ASGI web server hosting the FastAPI backend.
-* **WebSockets**: Full-duplex communication protocol for low-latency JSON metadata and JPEG frame streaming to the browser dashboard.
-* **SQLite3**: Local relational database engine storing all violation logging.
-
-### 3. Machine Learning & Forecasting
-* **LightGBM / XGBoost / CatBoost**: Gradient-boosted decision trees forming the Log-Ratio ensemble for spatial-temporal demand forecasting.
-* **Scikit-learn**: Validation split mapping (KFold) and validation metric evaluations.
-* **Pandas & NumPy**: Data manipulation, sliding baseline calculations, and spatial coordinate decoding.
-
-### 4. Interactive Simulation & Front-end Dashboard
-* **Leaflet.js**: Lightweight open-source mapping engine overlaying CartoDB Dark Matter tiles.
-* **HTML5 Canvas**: Low-latency rendering of vehicle markers, animations, and CCTV bounding boxes.
-* **CSS3 (Vanilla)**: Glassmorphism layout design, responsive flex grids, and dark-theme aesthetics.
-* **JavaScript (Vanilla)**: Core simulation state-machine, min-heap prioritized Dijkstra/A* routing, and max-pressure control loops.
+* **Computer Vision**: PyTorch, YOLOv8, OpenCV (CLAHE, Bilateral filtering, HSV siren tracking)
+* **Backend Framework**: FastAPI, Uvicorn, SQLite3
+* **Communication**: WebSockets (low-latency JPEG and metadata streaming)
+* **Front-end Console**: Leaflet.js, HTML5 Canvas, CSS3 (Glassmorphic dark UI), Javascript (Vanilla)
 
 ---
 
@@ -65,14 +89,14 @@ The system is now fully self-contained, serving both the Python FastAPI backend 
 ```
 Flipkart-gridlock-solver/
 │
-├── gridlock-solver/                   # Real-Time Simulation & CV Backend
+├── gridlock-solver/                   # Core Codebase
 │   ├── app.py                         # FastAPI + YOLOv8 + SQLite Backend
-│   ├── algorithms.js                  # A* Search, Min-Heap, Max-Pressure Control
-│   ├── simulation.js                  # Graph simulation engine & Leaflet Map integration
+│   ├── index.html                     # Frontend Rebranded Dashboard UI
+│   ├── style.css                      # Modern dark slate glassmorphism stylesheet
 │   ├── cv_feed.js                     # CCTV stream renderer & WebSocket consumer
 │   ├── dashboard.js                   # UI controllers, charts, and metrics aggregator
-│   ├── index.html                     # Frontend dashboard layout
-│   ├── style.css                      # Modern dark slate glassmorphism stylesheet
+│   ├── simulation.js                  # Graph simulation engine & Leaflet Map integration
+│   ├── algorithms.js                  # A* Search, Min-Heap, Max-Pressure Control
 │   └── requirements.txt               # Backend Python dependencies list
 ```
 
@@ -81,10 +105,10 @@ Flipkart-gridlock-solver/
 ## ⚙️ Getting Started
 
 ### Prerequisites
-* Python 3.10 or higher installed.
-* Web browser with internet access (to load Leaflet OSM tiles).
+* Python 3.10 or higher.
+* Web browser with internet access (to fetch Leaflet OSM map tiles).
 
-### Installation
+### Installation & Launch
 1. Clone this repository and navigate into it:
    ```cmd
    git clone <your-repo-url>
@@ -94,32 +118,24 @@ Flipkart-gridlock-solver/
    ```cmd
    pip install -r gridlock-solver/requirements.txt
    ```
+3. Run the system using the batch file or manual command:
+   * **Option A: Launcher Script**: Double-click `run.bat` or run:
+     ```cmd
+     .\run.bat
+     ```
+   * **Option B: Manual Command**:
+     ```cmd
+     cd gridlock-solver
+     python app.py
+     ```
 
-### Running the System
-You can execute the entire project (Python backend + web dashboard) with a **single command**:
-
-* **Option A: Command Launcher**:
-  Double-click `run.bat` or run:
-  ```cmd
-  .\run.bat
-  ```
-* **Option B: Manual Startup**:
-  Navigate into the `gridlock-solver` folder and start the FastAPI server:
-  ```cmd
-  cd gridlock-solver
-  python app.py
-  ```
-
-Once the terminal prints `Application startup complete`, open your web browser and go to:
+Once started, open your browser and go to:
 👉 **[http://localhost:8000/](http://localhost:8000/)**
 
 ---
 
-## 📈 System Evaluation & Metrics
-
-The system tracks several key performance indicators (KPIs) in real-time:
-* **Average Waiting Time**: Tracks reductions (typically >40% vs. fixed-timer baselines).
-* **Clearing Throughput**: Measured in vehicles cleared per minute (+18-25% improvement).
-* **Carbon Emissions Saved**: Calculates dynamic CO2 offsets based on reduced vehicle idling times.
-* **Graph Search Space**: A* search expands fewer nodes ($\approx 1.5$/6 nodes) compared to brute-force Dijkstra (6/6 nodes).
-* **RAG E-Challan Citation Details**: Click any entry in the violations log table to pop up the generated legal notice and statutory warning.
+## 📊 Evaluation Metrics
+The computer vision pipeline is evaluated using standard machine learning metrics:
+* **Detection accuracy & Localization mAP**: Target bounding box localization accuracy of $mAP@0.5 > 93\%$.
+* **Classification Precision/Recall**: Targets $>94\%$ Precision across helmet and seatbelt streams to prevent false citations.
+* **Inference Latency**: Target edge frame processing latency under 8ms to enable real-time tracking.
