@@ -1,2 +1,2 @@
 @echo off
-powershell -ExecutionPolicy Bypass -File "%~dp0gridlock-solver\run_system.ps1"
+powershell -ExecutionPolicy Bypass -File "%~dp0backend\run_system.ps1"

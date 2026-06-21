@@ -61,7 +61,8 @@ app.add_middleware(
 # Load YOLOv8 Nano model (pretrained on COCO dataset)
 # yolov8n.pt will automatically download if not present
 print("Loading YOLOv8 model...")
-model = YOLO("yolov8n.pt")
+model_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models", "yolov8n.pt")
+model = YOLO(model_path)
 print("YOLOv8 Model loaded successfully.")
 
 # COCO Class mapping for vehicles
@@ -460,7 +461,8 @@ async def websocket_endpoint(websocket: WebSocket):
             cap.release()
 
 # Serve static files (HTML, JS, CSS) at the root
-app.mount("/", StaticFiles(directory=os.path.dirname(os.path.abspath(__file__)), html=True), name="static")
+frontend_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend")
+app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="static")
 
 if __name__ == "__main__":
     # Port 8000
